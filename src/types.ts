@@ -126,8 +126,22 @@ export interface Issue {
   updatedAt: Date;
 }
 
+/** A lightweight issue model for list views and dashboards. */
+export interface IssueSummary {
+  issueNumber: number;
+  title: string;
+  labels: string[];
+  assigneeLogin?: string;
+  url: string;
+  state: 'open' | 'closed';
+  updatedAt: Date;
+}
+
 /** The merge/review status of a pull request. */
 export type PRStatus = 'open' | 'closed' | 'merged' | 'draft';
+
+/** Summary state of CI checks for a PR head ref (best-effort). */
+export type PRChecksStatus = 'success' | 'failure' | 'pending' | 'error' | 'unknown';
 
 /** A GitHub pull request. */
 export interface PR {
@@ -139,6 +153,18 @@ export interface PR {
   base: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** A lightweight PR model for list views and dashboards. */
+export interface PRSummary {
+  prNumber: number;
+  title: string;
+  url: string;
+  status: PRStatus;
+  head: string;
+  base: string;
+  updatedAt: Date;
+  checksStatus?: PRChecksStatus;
 }
 
 /** Filters for listing GitHub issues. */
