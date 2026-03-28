@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import WebSocket, { type RawData } from 'ws';
 import { EventEmitter } from 'events';
 import net from 'net';
@@ -9,42 +10,21 @@ import {
   createMessage,
   parseMessage,
   type BridgeMessage,
+  type AuthChallengePayload,
   type StatusUpdatePayload,
   type LogLinePayload,
   type TaskCompletePayload,
 } from './protocol.js';
+import { signAuth } from './auth.js';
 import type { AgentStatus, SshTunnelConfig, Task } from '../types.js';
 
-// ---------------------------------------------------------------------------
-// Reconnect constants
-// ---------------------------------------------------------------------------
-
-/** Backoff delay (ms) for each retry attempt (index 0 = first retry). */
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as const;
 
-// ---------------------------------------------------------------------------
-// SSH tunnel helpers
-// ---------------------------------------------------------------------------
-
-/** Result returned by {@link openSshTunnel}. */
 export interface SshTunnel {
-  /** Local TCP port that forwards to the remote bridge server. */
   localPort: number;
-  /** Closes the SSH connection and the local listener. */
   close(): void;
 }
 
-/**
- * Opens an SSH tunnel that forwards a local ephemeral port to
- * `remoteHost:remotePort` via the SSH gateway described in `config`.
- *
- * Uses key-based authentication only (no passwords).
- *
- * @param config - SSH gateway configuration.
- * @param remoteHost - Host reachable from the SSH server (often 'localhost').
- * @param remotePort - Port on `remoteHost` to forward to.
- * @returns A promise that resolves once the local port is ready to accept connections.
- */
 export function openSshTunnel(
   config: SshTunnelConfig,
   remoteHost: string,
@@ -56,7 +36,6 @@ export function openSshTunnel(
     let resolved = false;
 
     ssh.on('ready', () => {
-      // Create a local TCP server; each incoming connection is tunnelled.
       localServer = net.createServer((localSocket) => {
         ssh.forwardOut(
           '127.0.0.1',
@@ -77,7 +56,6 @@ export function openSshTunnel(
         );
       });
 
-      // Bind to a random free port.
       localServer.listen(0, '127.0.0.1', () => {
         const addr = localServer!.address();
         if (!addr || typeof addr === 'string') {
@@ -113,27 +91,9 @@ export function openSshTunnel(
   });
 }
 
-// ---------------------------------------------------------------------------
-// BridgeClient
-// ---------------------------------------------------------------------------
-
 /**
  * WebSocket client used by remote OpenClaw agents to connect to the NEXUS
  * bridge server.
- *
- * ### Connection lifecycle
- * 1. `connect()` opens a WebSocket to the bridge server.
- * 2. On `open`, sends `AUTH { secret, agentId }`.
- * 3. Server replies with `AUTH_ACK` → emits `'ready'`.
- * 4. If the connection drops, backs off and retries (max 5 attempts).
- *
- * ### Events emitted
- * | Event | Args | Description |
- * |-------|------|-------------|
- * | `'ready'` | — | AUTH handshake succeeded |
- * | `'disconnected'` | — | Socket closed (final or between retries) |
- * | `'task_dispatch'` | `task: Record<string, unknown>` | Server dispatched a task |
- * | `'error'` | `err: Error` | Unrecoverable error |
  */
 export class BridgeClient extends EventEmitter {
   private ws: WebSocket | null = null;
@@ -143,37 +103,23 @@ export class BridgeClient extends EventEmitter {
 
   private readonly url: string;
   private readonly agentId: string;
+  private readonly tokenId: string;
   private readonly secret: string;
 
-  /**
-   * @param url     - WebSocket URL of the bridge server (e.g. `ws://host:7777`).
-   * @param agentId - The agent ID to authenticate as.
-   * @param secret  - Pre-shared secret matching `NEXUS_BRIDGE_SECRET`.
-   */
-  constructor(url: string, agentId: string, secret: string) {
+  constructor(url: string, agentId: string, tokenId: string, secret: string) {
     super();
     this.url = url;
     this.agentId = agentId;
+    this.tokenId = tokenId;
     this.secret = secret;
   }
 
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Initiates the first connection attempt.
-   * Subsequent reconnects happen automatically on disconnect.
-   */
   connect(): void {
     this.stopped = false;
     this.retryCount = 0;
     this.openSocket();
   }
 
-  /**
-   * Permanently closes the connection (no more reconnects).
-   */
   disconnect(): void {
     this.stopped = true;
     if (this.reconnectTimer) {
@@ -187,36 +133,17 @@ export class BridgeClient extends EventEmitter {
     logger.info({ agentId: this.agentId }, 'BridgeClient: disconnected');
   }
 
-  /**
-   * Sends a STATUS_UPDATE message to the server.
-   *
-   * @param status - The new agent status.
-   */
   sendStatus(status: AgentStatus): void {
     this.send(createMessage<StatusUpdatePayload>(MessageType.STATUS_UPDATE, this.agentId, { status }));
   }
 
-  /**
-   * Sends a LOG_LINE message to the server.
-   *
-   * @param line - The log line text.
-   */
   sendLog(line: string): void {
     this.send(createMessage<LogLinePayload>(MessageType.LOG_LINE, this.agentId, { line }));
   }
 
-  /**
-   * Sends a TASK_COMPLETE message to the server.
-   *
-   * @param payload - Task completion details.
-   */
   sendTaskComplete(payload: TaskCompletePayload): void {
     this.send(createMessage<TaskCompletePayload>(MessageType.TASK_COMPLETE, this.agentId, payload));
   }
-
-  // ---------------------------------------------------------------------------
-  // Internal socket management
-  // ---------------------------------------------------------------------------
 
   private openSocket(): void {
     logger.info({ agentId: this.agentId, url: this.url }, 'BridgeClient: connecting');
@@ -224,13 +151,8 @@ export class BridgeClient extends EventEmitter {
     this.ws = ws;
 
     ws.on('open', () => {
-      logger.debug({ agentId: this.agentId }, 'BridgeClient: socket open — sending AUTH');
+      logger.debug({ agentId: this.agentId }, 'BridgeClient: socket open — waiting for AUTH_CHALLENGE');
       this.retryCount = 0;
-      ws.send(
-        JSON.stringify(
-          createMessage(MessageType.AUTH, this.agentId, { secret: this.secret })
-        )
-      );
     });
 
     ws.on('message', (data: RawData) => this.onMessage(data));
@@ -263,6 +185,19 @@ export class BridgeClient extends EventEmitter {
     }
 
     switch (msg.type) {
+      case MessageType.AUTH_CHALLENGE: {
+        const p = msg.payload as AuthChallengePayload;
+        const proof = signAuth({
+          tokenId: this.tokenId,
+          secret: this.secret,
+          agentId: this.agentId,
+          challenge: p.challenge,
+          clientNonce: cryptoNonce(),
+          clientTimeMs: Date.now(),
+        });
+        this.send(createMessage(MessageType.AUTH, this.agentId, proof));
+        break;
+      }
       case MessageType.AUTH_ACK:
         logger.info({ agentId: this.agentId }, 'BridgeClient: AUTH_ACK received — ready');
         this.emit('ready');
@@ -312,5 +247,13 @@ export class BridgeClient extends EventEmitter {
   }
 }
 
-// Re-export for convenience.
+function cryptoNonce(): string {
+  return crypto
+    .randomBytes(12)
+    .toString('base64')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
+}
+
 export type { TaskCompletePayload };

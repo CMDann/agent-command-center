@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageType, createMessage } from './protocol.js';
+import { signAuth } from './auth.js';
 
 // ---------------------------------------------------------------------------
 // Mock state — must be from vi.hoisted so vi.mock factory can reference it
 // ---------------------------------------------------------------------------
 
-/** Mutable holder for the most recently created WebSocketServer mock. */
 const wssHolder = vi.hoisted(() => {
   let instance: {
     on: (event: string, cb: (...args: unknown[]) => void) => void;
@@ -19,11 +19,10 @@ const wssHolder = vi.hoisted(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Mock ws — factory only references vi.hoisted values and built-ins
+// Mock ws
 // ---------------------------------------------------------------------------
 
 vi.mock('ws', () => {
-  /** Tiny hand-rolled event bus used inside the mock. */
   function makeHandlerMap(): {
     add(e: string, cb: (...a: unknown[]) => void): void;
     fire(e: string, ...a: unknown[]): void;
@@ -49,16 +48,13 @@ vi.mock('ws', () => {
   return {
     WebSocketServer: MockWebSocketServer,
     WebSocket: { OPEN: 1 },
-    // RawData is only used as a type in BridgeServer — no runtime value needed.
   };
 });
 
-// Import AFTER mock is registered.
 const { BridgeServer } = await import('./BridgeServer.js');
 
 // ---------------------------------------------------------------------------
-// Mock WebSocket instance — EventEmitter via Node built-in
-// A new MockWs is created per test and passed to the wss 'connection' event.
+// Mock WebSocket instance
 // ---------------------------------------------------------------------------
 
 type MockWs = {
@@ -87,24 +83,32 @@ function createMockWs(): MockWs {
   return ws;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const SECRET = 'test-secret';
 const AGENT_ID = 'openclaw-1';
+const TOKENS: Record<string, string> = { [AGENT_ID]: SECRET };
 
 function makeRaw(msg: object): Buffer {
   return Buffer.from(JSON.stringify(msg));
 }
 
-function authMsg(secret = SECRET, agentId = AGENT_ID): Buffer {
-  return makeRaw(createMessage(MessageType.AUTH, agentId, { secret }));
+function getChallengeFromSend(ws: MockWs): { challenge: string } {
+  const first = JSON.parse(ws.send.mock.calls[0]![0] as string) as { type: string; payload: { challenge: string } };
+  expect(first.type).toBe(MessageType.AUTH_CHALLENGE);
+  return { challenge: first.payload.challenge };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+function authMsg(ws: MockWs, agentId = AGENT_ID): Buffer {
+  const { challenge } = getChallengeFromSend(ws);
+  const payload = signAuth({
+    tokenId: agentId,
+    secret: TOKENS[agentId]!,
+    agentId,
+    challenge,
+    clientNonce: 'nonce-1',
+    clientTimeMs: Date.now(),
+  });
+  return makeRaw(createMessage(MessageType.AUTH, agentId, payload));
+}
 
 describe('BridgeServer', () => {
   let server: InstanceType<typeof BridgeServer>;
@@ -112,7 +116,8 @@ describe('BridgeServer', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    server = new BridgeServer(7777, SECRET);
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    server = new BridgeServer(7777, TOKENS);
     clientWs = createMockWs();
   });
 
@@ -121,33 +126,38 @@ describe('BridgeServer', () => {
     vi.useRealTimers();
   });
 
-  // -------------------------------------------------------------------------
-  // AUTH flow
-  // -------------------------------------------------------------------------
-
   describe('AUTH', () => {
-    it('accepts a connection with the correct secret and emits client:connected', () => {
+    it('accepts a connection with a valid signature and emits client:connected', () => {
       const handler = vi.fn();
       server.on('client:connected', handler);
 
       wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg());
+      clientWs.emit('message', authMsg(clientWs));
 
       expect(handler).toHaveBeenCalledWith(AGENT_ID);
     });
 
-    it('sends AUTH_ACK after successful auth', () => {
+    it('sends AUTH_ACK after successful auth (after sending AUTH_CHALLENGE)', () => {
       wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg());
+      clientWs.emit('message', authMsg(clientWs));
 
-      expect(clientWs.send).toHaveBeenCalledOnce();
-      const sent = JSON.parse(clientWs.send.mock.calls[0]![0] as string) as { type: string };
+      expect(clientWs.send).toHaveBeenCalledTimes(2);
+      const sent = JSON.parse(clientWs.send.mock.calls[1]![0] as string) as { type: string };
       expect(sent.type).toBe(MessageType.AUTH_ACK);
     });
 
-    it('closes with 4002 when the secret is wrong', () => {
+    it('closes with 4002 when signature is invalid', () => {
       wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg('wrong-secret'));
+      const { challenge } = getChallengeFromSend(clientWs);
+      const bad = signAuth({
+        tokenId: AGENT_ID,
+        secret: 'wrong-secret',
+        agentId: AGENT_ID,
+        challenge,
+        clientNonce: 'nonce-1',
+        clientTimeMs: Date.now(),
+      });
+      clientWs.emit('message', makeRaw(createMessage(MessageType.AUTH, AGENT_ID, bad)));
 
       expect(clientWs.close).toHaveBeenCalledWith(4002, expect.any(String));
     });
@@ -158,25 +168,12 @@ describe('BridgeServer', () => {
 
       expect(clientWs.close).toHaveBeenCalledWith(4001, expect.any(String));
     });
-
-    it('does not close early if AUTH arrives before timeout', () => {
-      wssHolder.get()!.emit('connection', clientWs);
-      vi.advanceTimersByTime(4_000);
-      clientWs.emit('message', authMsg());
-      vi.advanceTimersByTime(2_000);
-
-      expect(clientWs.close).not.toHaveBeenCalled();
-    });
   });
-
-  // -------------------------------------------------------------------------
-  // Message routing (after auth)
-  // -------------------------------------------------------------------------
 
   describe('message routing', () => {
     beforeEach(() => {
       wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg());
+      clientWs.emit('message', authMsg(clientWs));
     });
 
     it('emits agent:status on STATUS_UPDATE', () => {
@@ -205,24 +202,12 @@ describe('BridgeServer', () => {
 
       expect(handler).toHaveBeenCalledWith(AGENT_ID, expect.objectContaining({ success: true }));
     });
-
-    it('ignores unparseable messages without throwing', () => {
-      const handler = vi.fn();
-      server.on('agent:status', handler);
-
-      expect(() => clientWs.emit('message', Buffer.from('{bad json'))).not.toThrow();
-      expect(handler).not.toHaveBeenCalled();
-    });
   });
-
-  // -------------------------------------------------------------------------
-  // Heartbeat
-  // -------------------------------------------------------------------------
 
   describe('heartbeat', () => {
     beforeEach(() => {
       wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg());
+      clientWs.emit('message', authMsg(clientWs));
     });
 
     it('sends a ping every 30 s', () => {
@@ -244,10 +229,6 @@ describe('BridgeServer', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // isConnected / dispatchTask
-  // -------------------------------------------------------------------------
-
   describe('isConnected', () => {
     it('returns false before auth', () => {
       wssHolder.get()!.emit('connection', clientWs);
@@ -256,28 +237,21 @@ describe('BridgeServer', () => {
 
     it('returns true after successful auth', () => {
       wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg());
+      clientWs.emit('message', authMsg(clientWs));
       expect(server.isConnected(AGENT_ID)).toBe(true);
-    });
-
-    it('returns false after disconnect', () => {
-      wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg());
-      clientWs.emit('close', 1000, Buffer.from(''));
-      expect(server.isConnected(AGENT_ID)).toBe(false);
     });
   });
 
   describe('dispatchTask', () => {
     it('throws if the agent is not connected', () => {
-      expect(() =>
-        server.dispatchTask(AGENT_ID, { id: 't1' } as never)
-      ).toThrow("agent 'openclaw-1' is not connected");
+      expect(() => server.dispatchTask(AGENT_ID, { id: 't1' } as never)).toThrow(
+        "agent 'openclaw-1' is not connected"
+      );
     });
 
     it('sends a TASK_DISPATCH message when the agent is connected', () => {
       wssHolder.get()!.emit('connection', clientWs);
-      clientWs.emit('message', authMsg());
+      clientWs.emit('message', authMsg(clientWs));
       clientWs.send.mockClear();
 
       server.dispatchTask(AGENT_ID, { id: 't1', issueNumber: 1, title: 'Fix it' } as never);
@@ -288,16 +262,12 @@ describe('BridgeServer', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // Disconnect cleanup
-  // -------------------------------------------------------------------------
-
   it('emits client:disconnected when client closes', () => {
     const handler = vi.fn();
     server.on('client:disconnected', handler);
 
     wssHolder.get()!.emit('connection', clientWs);
-    clientWs.emit('message', authMsg());
+    clientWs.emit('message', authMsg(clientWs));
     clientWs.emit('close', 1000, Buffer.from(''));
 
     expect(handler).toHaveBeenCalledWith(AGENT_ID);

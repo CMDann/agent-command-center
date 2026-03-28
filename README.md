@@ -88,6 +88,18 @@ npm start
 - Without the GitHub env vars, the Tasks panel will show a friendly “not configured” message.
 - Without the `claude` / `codex` CLIs installed, you can still run the TUI, but connecting agents will fail.
 
+### Remote bridge auth (WebSocket)
+
+Remote OpenClaw connections use a challenge-response auth handshake (HMAC-SHA256). The shared secret is **never sent over the wire**, and each connection includes a server challenge + client nonce for basic replay resistance.
+
+Configure one of:
+
+- `NEXUS_BRIDGE_TOKENS` (preferred): comma-separated `tokenId=secret` pairs
+  - Example: `NEXUS_BRIDGE_TOKENS=openclaw-1=supersecret,ci=anothersecret`
+- `NEXUS_BRIDGE_SECRET` (legacy fallback): single shared secret exposed as tokenId `default`
+
+For the current MVP implementation, if a token exists for `agentId` it will be used; otherwise it falls back to `default`.
+
 ## Configuration
 
 NEXUS is configured via `nexus.config.json` in your project root:
