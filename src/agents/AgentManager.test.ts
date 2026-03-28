@@ -215,7 +215,7 @@ describe('AgentManager', () => {
 
       await dispatchPromise;
 
-      expect(completeSpy).toHaveBeenCalledWith('claude-1');
+      expect(completeSpy).toHaveBeenCalledWith('claude-1', {});
       expect(manager.listAgents()[0]?.status).toBe('idle');
     });
 
@@ -332,6 +332,29 @@ describe('AgentManager', () => {
       await manager.connect('claude-1');
 
       expect(cb).toHaveBeenCalledWith('claude-1', 'idle');
+    });
+  });
+
+  describe('onTaskComplete', () => {
+    it('registers a task completion listener', async () => {
+      const versionSub = createMockSubprocess();
+      mockExeca.mockReturnValueOnce(versionSub);
+      versionSub._resolve();
+
+      const taskSub = createMockSubprocess();
+      mockExeca.mockReturnValueOnce(taskSub);
+
+      const cb = vi.fn();
+      manager.onTaskComplete(cb);
+
+      manager.register(CLAUDE_CONFIG);
+      await manager.connect('claude-1');
+
+      const dispatchPromise = manager.dispatch('claude-1', SAMPLE_TASK);
+      taskSub._resolve();
+      await dispatchPromise;
+
+      expect(cb).toHaveBeenCalledWith('claude-1', {});
     });
   });
 
