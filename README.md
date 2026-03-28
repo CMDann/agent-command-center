@@ -52,7 +52,7 @@ npm install
 
 # Configure your environment
 cp .env.example .env
-# Edit .env with your tokens and agent endpoints
+# Edit .env with your GitHub repo coordinates and tokens (never commit .env)
 
 # Launch NEXUS
 npm start
@@ -67,10 +67,10 @@ NEXUS is configured via `nexus.config.json` in your project root:
 ```json
 {
   "workspace": "/path/to/your/project",
-  "github": {
-    "owner": "your-org",
-    "repo": "your-repo"
-  },
+  "repos": [
+    { "name": "frontend", "path": "./packages/frontend" },
+    { "name": "api", "path": "./packages/api" }
+  ],
   "agents": [
     {
       "id": "claude-local",
@@ -85,13 +85,11 @@ NEXUS is configured via `nexus.config.json` in your project root:
       "port": 7777,
       "transport": "websocket"
     }
-  ],
-  "subrepos": [
-    { "name": "frontend", "path": "./packages/frontend" },
-    { "name": "api",      "path": "./packages/api" }
   ]
 }
 ```
+
+GitHub repository coordinates and authentication are currently provided via environment variables (see `.env.example`).
 
 ---
 
