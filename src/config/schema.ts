@@ -15,6 +15,14 @@ const BridgeConfigSchema = z
   })
   .default({});
 
+/** Schema for SSH tunnel configuration. */
+const SshTunnelConfigSchema = z.object({
+  host: z.string(),
+  port: z.number().optional(),
+  user: z.string(),
+  keyPath: z.string(),
+});
+
 /** Schema for a single agent configuration entry. */
 const AgentConfigSchema = z.object({
   id: z.string(),
@@ -24,6 +32,7 @@ const AgentConfigSchema = z.object({
   port: z.number().optional(),
   transport: z.enum(['ssh', 'websocket']).optional(),
   autopr: z.boolean().default(true),
+  sshTunnel: SshTunnelConfigSchema.optional(),
 });
 
 /** Root schema for nexus.config.json. */

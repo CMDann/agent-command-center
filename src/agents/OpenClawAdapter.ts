@@ -1,0 +1,292 @@
+import { AgentAdapter, AgentError } from './AgentAdapter.js';
+import { BridgeServer } from '../bridge/BridgeServer.js';
+import { BridgeClient, openSshTunnel } from '../bridge/BridgeClient.js';
+import { logger } from '../utils/logger.js';
+import type { AgentConfig, AgentStatus, Task } from '../types.js';
+import type { SshTunnel } from '../bridge/BridgeClient.js';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Narrowed view of the config fields relevant to OpenClaw server mode. */
+interface ServerModeConfig extends AgentConfig {
+  port: number;
+}
+
+/** Narrowed view of the config fields relevant to OpenClaw client mode. */
+interface ClientModeConfig extends AgentConfig {
+  host: string;
+  port: number;
+}
+
+// ---------------------------------------------------------------------------
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+/** Reads NEXUS_BRIDGE_SECRET from the environment or throws. */
+function requireSecret(): string {
+  const secret = process.env['NEXUS_BRIDGE_SECRET'];
+  if (!secret) {
+    throw new AgentError(
+      "NEXUS_BRIDGE_SECRET environment variable is not set — cannot start bridge",
+      'openclaw'
+    );
+  }
+  return secret;
+}
+
+// ---------------------------------------------------------------------------
+// OpenClawAdapter
+// ---------------------------------------------------------------------------
+
+/**
+ * Agent adapter for remote OpenClaw agents connected via the NEXUS bridge.
+ *
+ * ### Mode selection
+ * The mode is determined by whether `config.host` is set:
+ *
+ * - **Server mode** (`host` absent): The NEXUS server starts a
+ *   {@link BridgeServer} that listens for incoming OpenClaw connections.
+ *   `connect()` resolves once the server is listening; the adapter waits for
+ *   the remote agent to authenticate before transitioning to `idle`.
+ *
+ * - **Client mode** (`host` present): NEXUS itself acts as a bridge client
+ *   (useful for testing or when OpenClaw is acting as the server).
+ *   If `config.sshTunnel` is present, an SSH tunnel is established first.
+ *
+ * ### Events forwarded
+ * Status changes, log lines, and task-complete signals from the remote agent
+ * are forwarded to the standard `AgentAdapter` event surface.
+ */
+export class OpenClawAdapter extends AgentAdapter {
+  private server: BridgeServer | null = null;
+  private client: BridgeClient | null = null;
+  private tunnel: SshTunnel | null = null;
+
+  /** Pending disconnect promise/resolve — used to wait for clean close. */
+  private pendingDisconnect: (() => void) | null = null;
+
+  constructor(config: AgentConfig) {
+    super(config);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Establishes the bridge connection.
+   *
+   * In server mode: starts the WebSocket server and waits for the remote
+   * OpenClaw agent to connect and authenticate (resolves immediately after
+   * the server is listening; status updates come via events).
+   *
+   * In client mode: connects to an existing bridge server.
+   */
+  async connect(): Promise<void> {
+    const secret = requireSecret();
+
+    try {
+      if (this.isClientMode()) {
+        await this.connectClientMode(secret);
+      } else {
+        this.connectServerMode(secret);
+      }
+    } catch (err) {
+      this.setStatus('error');
+      logger.error({ agentId: this.id, err }, 'OpenClawAdapter connect failed');
+      throw new AgentError(
+        `Failed to connect OpenClaw agent '${this.id}': ${String(err)}`,
+        this.id
+      );
+    }
+  }
+
+  /**
+   * Tears down the bridge connection (server or client).
+   */
+  async disconnect(): Promise<void> {
+    logger.info({ agentId: this.id }, 'OpenClawAdapter disconnecting');
+
+    if (this.client) {
+      this.client.disconnect();
+      this.client = null;
+    }
+
+    if (this.server) {
+      await this.server.close();
+      this.server = null;
+    }
+
+    if (this.tunnel) {
+      this.tunnel.close();
+      this.tunnel = null;
+    }
+
+    this.session = { ...this.session, currentTask: undefined, pid: undefined };
+    this.setStatus('disconnected');
+    this.emitLog('Disconnected');
+
+    if (this.pendingDisconnect) {
+      this.pendingDisconnect();
+      this.pendingDisconnect = null;
+    }
+  }
+
+  /**
+   * Dispatches a task to the remote agent.
+   *
+   * In server mode: relays the task via the {@link BridgeServer}.
+   * In client mode: not supported (the remote side dispatches tasks to us).
+   *
+   * @param task - The task to run.
+   * @throws {AgentError} If the agent is not idle or the bridge is not ready.
+   */
+  async dispatch(task: Task): Promise<void> {
+    if (this.session.status !== 'idle') {
+      throw new AgentError(
+        `Agent '${this.id}' is not idle (status: ${this.session.status})`,
+        this.id
+      );
+    }
+
+    if (this.server) {
+      if (!this.server.isConnected(this.id)) {
+        throw new AgentError(
+          `OpenClaw agent '${this.id}' is not connected to the bridge server`,
+          this.id
+        );
+      }
+      this.session = { ...this.session, currentTask: task.id };
+      this.setStatus('working');
+      this.emitLog(`Dispatching task #${task.issueNumber}: ${task.title}`);
+      this.server.dispatchTask(this.id, task);
+    } else {
+      throw new AgentError(
+        `OpenClaw agent '${this.id}' in client mode cannot dispatch tasks`,
+        this.id
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mode implementations
+  // ---------------------------------------------------------------------------
+
+  private isClientMode(): boolean {
+    return !!this.session.host;
+  }
+
+  private connectServerMode(secret: string): void {
+    const config = this.session as ServerModeConfig;
+    const port = config.port ?? 7777;
+
+    this.server = new BridgeServer(port, secret);
+    this.emitLog(`Bridge server listening on port ${port}`);
+    logger.info({ agentId: this.id, port }, 'OpenClawAdapter: server mode started');
+
+    this.server.on('client:connected', (agentId: string) => {
+      if (agentId !== this.id) return;
+      this.session = { ...this.session, connectedAt: new Date() };
+      this.setStatus('idle');
+      this.emitLog('Remote OpenClaw agent connected');
+    });
+
+    this.server.on('client:disconnected', (agentId: string) => {
+      if (agentId !== this.id) return;
+      this.setStatus('disconnected');
+      this.emitLog('Remote OpenClaw agent disconnected');
+    });
+
+    this.wireServerEvents();
+  }
+
+  private async connectClientMode(secret: string): Promise<void> {
+    const config = this.session as ClientModeConfig;
+    const host = config.host;
+    const port = config.port ?? 7777;
+
+    let wsHost = host;
+    let wsPort = port;
+
+    // Open SSH tunnel if configured.
+    if (this.session.sshTunnel) {
+      this.emitLog(`Opening SSH tunnel via ${this.session.sshTunnel.host}`);
+      this.tunnel = await openSshTunnel(this.session.sshTunnel, host, port);
+      wsHost = '127.0.0.1';
+      wsPort = this.tunnel.localPort;
+      logger.info(
+        { agentId: this.id, localPort: wsPort },
+        'OpenClawAdapter: SSH tunnel established'
+      );
+    }
+
+    const url = `ws://${wsHost}:${wsPort}`;
+    this.client = new BridgeClient(url, this.id, secret);
+
+    this.client.on('ready', () => {
+      this.session = { ...this.session, connectedAt: new Date() };
+      this.setStatus('idle');
+      this.emitLog('Connected to bridge server');
+    });
+
+    this.client.on('disconnected', () => {
+      if (this.session.status !== 'disconnected') {
+        this.setStatus('disconnected');
+        this.emitLog('Disconnected from bridge server');
+      }
+    });
+
+    this.client.on('error', (err: Error) => {
+      this.setStatus('error');
+      this.emitLog(`Bridge error: ${err.message}`);
+      logger.error({ agentId: this.id, err }, 'OpenClawAdapter: bridge client error');
+    });
+
+    this.wireClientEvents();
+    this.client.connect();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event wiring
+  // ---------------------------------------------------------------------------
+
+  private wireServerEvents(): void {
+    if (!this.server) return;
+
+    this.server.on('agent:status', (agentId: string, status: string) => {
+      if (agentId !== this.id) return;
+      this.setStatus(status as AgentStatus);
+    });
+
+    this.server.on('agent:log', (agentId: string, line: string) => {
+      if (agentId !== this.id) return;
+      this.emitLog(line);
+    });
+
+    this.server.on('agent:task_complete', (agentId: string, payload: Record<string, unknown>) => {
+      if (agentId !== this.id) return;
+      this.session = { ...this.session, currentTask: undefined, lastSeen: new Date() };
+      this.setStatus('idle');
+      this.emitLog('Task complete');
+      this.emit('task_complete', {
+        prUrl: payload['prUrl'] as string | undefined,
+        prNumber: payload['prNumber'] as number | undefined,
+      });
+    });
+  }
+
+  private wireClientEvents(): void {
+    if (!this.client) return;
+
+    this.client.on('task_dispatch', (task: Task) => {
+      // In client mode, the server is giving us a task to run locally.
+      // Emit a log line and mark status as working; the actual execution
+      // is handled by whichever component receives the event.
+      this.session = { ...this.session, currentTask: (task as { id: string }).id };
+      this.setStatus('working');
+      this.emitLog(`Received task from bridge: ${JSON.stringify(task)}`);
+    });
+  }
+}

@@ -1,7 +1,8 @@
 import { EventEmitter } from 'events';
 import { ClaudeAdapter } from './ClaudeAdapter.js';
 import { CodexAdapter } from './CodexAdapter.js';
-import { AgentAdapter, AgentError, type TaskCompleteResult } from './AgentAdapter.js';
+import { OpenClawAdapter } from './OpenClawAdapter.js';
+import { AgentAdapter, type TaskCompleteResult } from './AgentAdapter.js';
 import { logger } from '../utils/logger.js';
 import type { AgentConfig, AgentSession, AgentStatus, AgentType, Task } from '../types.js';
 
@@ -194,13 +195,7 @@ function createAdapter(config: AgentConfig): AgentAdapter {
   const typeMap: Record<AgentType, (c: AgentConfig) => AgentAdapter> = {
     claude: (c) => new ClaudeAdapter(c),
     codex: (c) => new CodexAdapter(c),
-    // openclaw is handled by the bridge adapter added in Phase 3.
-    openclaw: (c) => {
-      throw new AgentError(
-        `openclaw agents require the bridge adapter (Phase 3). Agent: '${c.id}'`,
-        c.id
-      );
-    },
+    openclaw: (c) => new OpenClawAdapter(c),
   };
 
   const factory = typeMap[config.type];
