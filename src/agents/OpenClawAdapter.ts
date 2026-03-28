@@ -25,16 +25,32 @@ interface ClientModeConfig extends AgentConfig {
 // Module-level helpers
 // ---------------------------------------------------------------------------
 
-/** Reads NEXUS_BRIDGE_SECRET from the environment or throws. */
-function requireSecret(): string {
-  const secret = process.env['NEXUS_BRIDGE_SECRET'];
-  if (!secret) {
-    throw new AgentError(
-      "NEXUS_BRIDGE_SECRET environment variable is not set — cannot start bridge",
-      'openclaw'
-    );
+/**
+ * Loads bridge auth tokens from env and picks the token for a specific agent.
+ *
+ * Selection rule (minimal MVP):
+ * - If NEXUS_BRIDGE_TOKENS contains an entry for this agentId, use that.
+ * - Else, fall back to tokenId "default" (supports legacy NEXUS_BRIDGE_SECRET).
+ */
+function requireBridgeAuth(agentId: string): { tokens: Record<string, string>; tokenId: string; secret: string } {
+  let tokens: Record<string, string>;
+  try {
+    tokens = loadBridgeTokensFromEnv();
+  } catch (err) {
+    throw new AgentError(String(err), 'openclaw');
   }
-  return secret;
+
+  if (tokens[agentId]) {
+    return { tokens, tokenId: agentId, secret: tokens[agentId]! };
+  }
+  if (tokens['default']) {
+    return { tokens, tokenId: 'default', secret: tokens['default']! };
+  }
+
+  throw new AgentError(
+    `No bridge token found for agent '${agentId}'. Set NEXUS_BRIDGE_TOKENS=${agentId}=<secret> (or provide a 'default' token).`,
+    'openclaw'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -86,13 +102,13 @@ export class OpenClawAdapter extends AgentAdapter {
    * In client mode: connects to an existing bridge server.
    */
   async connect(): Promise<void> {
-    const secret = requireSecret();
+    const auth = requireBridgeAuth(this.id);
 
     try {
       if (this.isClientMode()) {
-        await this.connectClientMode(secret);
+        await this.connectClientMode(auth.tokenId, auth.secret);
       } else {
-        this.connectServerMode(secret);
+        this.connectServerMode(auth.tokens);
       }
     } catch (err) {
       this.setStatus('error');
@@ -179,11 +195,11 @@ export class OpenClawAdapter extends AgentAdapter {
     return !!this.session.host;
   }
 
-  private connectServerMode(secret: string): void {
+  private connectServerMode(tokens: Record<string, string>): void {
     const config = this.session as ServerModeConfig;
     const port = config.port ?? 7777;
 
-    this.server = new BridgeServer(port, secret);
+    this.server = new BridgeServer(port, tokens);
     this.emitLog(`Bridge server listening on port ${port}`);
     logger.info({ agentId: this.id, port }, 'OpenClawAdapter: server mode started');
 
@@ -203,7 +219,7 @@ export class OpenClawAdapter extends AgentAdapter {
     this.wireServerEvents();
   }
 
-  private async connectClientMode(secret: string): Promise<void> {
+  private async connectClientMode(tokenId: string, secret: string): Promise<void> {
     const config = this.session as ClientModeConfig;
     const host = config.host;
     const port = config.port ?? 7777;
@@ -224,7 +240,7 @@ export class OpenClawAdapter extends AgentAdapter {
     }
 
     const url = `ws://${wsHost}:${wsPort}`;
-    this.client = new BridgeClient(url, this.id, secret);
+    this.client = new BridgeClient(url, this.id, tokenId, secret);
 
     this.client.on('ready', () => {
       this.session = { ...this.session, connectedAt: new Date() };

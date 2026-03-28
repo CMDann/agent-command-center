@@ -13,7 +13,6 @@ class MockWsInstance extends EventEmitter {
   ping = vi.fn();
   pong = vi.fn();
 
-  /** Helper: simulate the server sending a message to us. */
   simulateMessage(msg: object): void {
     this.emit('message', Buffer.from(JSON.stringify(msg)));
   }
@@ -38,13 +37,14 @@ vi.mock('ws', async () => {
 
 const { BridgeClient } = await import('./BridgeClient.js');
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const SECRET = 'my-secret';
+const TOKEN_ID = 'claw-agent';
 const AGENT_ID = 'claw-agent';
 const URL = 'ws://localhost:7777';
+
+function authChallengeMsg(): object {
+  return createMessage(MessageType.AUTH_CHALLENGE, '', { challenge: 'c', serverTimeMs: 0 });
+}
 
 function authAckMsg(): object {
   return createMessage(MessageType.AUTH_ACK, AGENT_ID, {});
@@ -54,16 +54,12 @@ function taskDispatchMsg(task: object): object {
   return createMessage(MessageType.TASK_DISPATCH, AGENT_ID, { task });
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe('BridgeClient', () => {
   let client: InstanceType<typeof BridgeClient>;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    client = new BridgeClient(URL, AGENT_ID, SECRET);
+    client = new BridgeClient(URL, AGENT_ID, TOKEN_ID, SECRET);
   });
 
   afterEach(() => {
@@ -71,24 +67,30 @@ describe('BridgeClient', () => {
     vi.useRealTimers();
   });
 
-  // -------------------------------------------------------------------------
-  // Initial connection + AUTH
-  // -------------------------------------------------------------------------
-
-  describe('connect', () => {
-    it('sends AUTH message immediately when socket opens', () => {
+  describe('connect + auth handshake', () => {
+    it('does not send AUTH immediately on open (waits for challenge)', () => {
       client.connect();
       lastWsInstance.emit('open');
+      expect(lastWsInstance.send).not.toHaveBeenCalled();
+    });
+
+    it('sends AUTH after receiving AUTH_CHALLENGE', () => {
+      client.connect();
+      lastWsInstance.emit('open');
+
+      lastWsInstance.simulateMessage(authChallengeMsg());
 
       expect(lastWsInstance.send).toHaveBeenCalledOnce();
       const sent = JSON.parse(lastWsInstance.send.mock.calls[0]![0] as string) as {
         type: string;
         agentId: string;
-        payload: { secret: string };
+        payload: { tokenId: string; signature: string };
       };
       expect(sent.type).toBe(MessageType.AUTH);
       expect(sent.agentId).toBe(AGENT_ID);
-      expect(sent.payload.secret).toBe(SECRET);
+      expect(sent.payload.tokenId).toBe(TOKEN_ID);
+      expect(typeof sent.payload.signature).toBe('string');
+      expect(sent.payload.signature.length).toBeGreaterThan(0);
     });
 
     it('emits ready when AUTH_ACK is received', () => {
@@ -97,15 +99,12 @@ describe('BridgeClient', () => {
 
       client.connect();
       lastWsInstance.emit('open');
+      lastWsInstance.simulateMessage(authChallengeMsg());
       lastWsInstance.simulateMessage(authAckMsg());
 
       expect(handler).toHaveBeenCalledOnce();
     });
   });
-
-  // -------------------------------------------------------------------------
-  // Message handling
-  // -------------------------------------------------------------------------
 
   describe('task_dispatch event', () => {
     it('emits task_dispatch with the task payload when server sends TASK_DISPATCH', () => {
@@ -113,6 +112,7 @@ describe('BridgeClient', () => {
       client.on('task_dispatch', handler);
       client.connect();
       lastWsInstance.emit('open');
+      lastWsInstance.simulateMessage(authChallengeMsg());
       lastWsInstance.simulateMessage(authAckMsg());
 
       const task = { id: 't1', title: 'Do thing' };
@@ -126,6 +126,7 @@ describe('BridgeClient', () => {
     it('replies with PONG when server sends PING', () => {
       client.connect();
       lastWsInstance.emit('open');
+      lastWsInstance.simulateMessage(authChallengeMsg());
       lastWsInstance.send.mockClear();
 
       const ping = createMessage(MessageType.PING, '', {});
@@ -137,14 +138,11 @@ describe('BridgeClient', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // Sending messages
-  // -------------------------------------------------------------------------
-
-  describe('sendStatus', () => {
-    it('sends a STATUS_UPDATE message', () => {
+  describe('sending messages', () => {
+    it('sendStatus sends STATUS_UPDATE', () => {
       client.connect();
       lastWsInstance.emit('open');
+      lastWsInstance.simulateMessage(authChallengeMsg());
       lastWsInstance.send.mockClear();
 
       client.sendStatus('idle');
@@ -157,12 +155,11 @@ describe('BridgeClient', () => {
       expect(sent.type).toBe(MessageType.STATUS_UPDATE);
       expect(sent.payload.status).toBe('idle');
     });
-  });
 
-  describe('sendLog', () => {
-    it('sends a LOG_LINE message', () => {
+    it('sendLog sends LOG_LINE', () => {
       client.connect();
       lastWsInstance.emit('open');
+      lastWsInstance.simulateMessage(authChallengeMsg());
       lastWsInstance.send.mockClear();
 
       client.sendLog('hello world');
@@ -174,12 +171,11 @@ describe('BridgeClient', () => {
       expect(sent.type).toBe(MessageType.LOG_LINE);
       expect(sent.payload.line).toBe('hello world');
     });
-  });
 
-  describe('sendTaskComplete', () => {
-    it('sends a TASK_COMPLETE message with the payload', () => {
+    it('sendTaskComplete sends TASK_COMPLETE', () => {
       client.connect();
       lastWsInstance.emit('open');
+      lastWsInstance.simulateMessage(authChallengeMsg());
       lastWsInstance.send.mockClear();
 
       client.sendTaskComplete({ success: true, prUrl: 'http://gh/1' });
@@ -194,26 +190,13 @@ describe('BridgeClient', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // Reconnect logic
-  // -------------------------------------------------------------------------
-
   describe('reconnect', () => {
     it('schedules a reconnect after the first disconnect', () => {
-      const wsSpy = vi.fn().mockImplementation(() => {
-        const instance = new MockWsInstance();
-        lastWsInstance = instance;
-        return instance;
-      });
-      (wsSpy as unknown as { OPEN: number }).OPEN = 1;
-
       client.connect();
       const firstWs = lastWsInstance;
       firstWs.emit('close', 1006, Buffer.from(''));
 
-      // Advance past the first retry delay (1 s).
       vi.advanceTimersByTime(1_100);
-      // A second socket should have been created.
       expect(lastWsInstance).not.toBe(firstWs);
     });
 
@@ -223,7 +206,6 @@ describe('BridgeClient', () => {
 
       client.connect();
 
-      // Exhaust all 5 retry delays: 1s, 2s, 4s, 8s, 16s = 31 s total.
       for (let i = 0; i < 5; i++) {
         lastWsInstance.emit('close', 1006, Buffer.from(''));
         vi.advanceTimersByTime(17_000);
@@ -243,14 +225,9 @@ describe('BridgeClient', () => {
       first.emit('close', 1006, Buffer.from(''));
       vi.advanceTimersByTime(2_000);
 
-      // lastWsInstance should still be the first one (no new socket created).
       expect(lastWsInstance).toBe(first);
     });
   });
-
-  // -------------------------------------------------------------------------
-  // Edge cases
-  // -------------------------------------------------------------------------
 
   it('does not send if socket is not open', () => {
     client.connect();

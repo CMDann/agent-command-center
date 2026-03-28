@@ -11,7 +11,9 @@ import { randomUUID } from 'crypto';
  * to JSON (e.g. for debugging or logging).
  */
 export enum MessageType {
-  /** Client → Server: prove identity with the shared secret. */
+  /** Server → Client: per-connection challenge nonce. */
+  AUTH_CHALLENGE = 'AUTH_CHALLENGE',
+  /** Client → Server: prove identity with a shared-secret signature. */
   AUTH = 'AUTH',
   /** Server → Client: authentication accepted; connection is live. */
   AUTH_ACK = 'AUTH_ACK',
@@ -61,10 +63,24 @@ export interface BridgeMessage<P extends Record<string, unknown> = Record<string
 // Typed payload shapes
 // ---------------------------------------------------------------------------
 
+/** Payload for AUTH_CHALLENGE messages. */
+export interface AuthChallengePayload extends Record<string, unknown> {
+  /** Random server challenge (base64url). */
+  challenge: string;
+  /** Server unix epoch milliseconds. */
+  serverTimeMs: number;
+}
+
 /** Payload for AUTH messages. */
 export interface AuthPayload extends Record<string, unknown> {
-  /** Shared secret from `NEXUS_BRIDGE_SECRET`. */
-  secret: string;
+  /** Non-secret token identifier (looked up in NEXUS_BRIDGE_TOKENS). */
+  tokenId: string;
+  /** Client unix epoch milliseconds. */
+  clientTimeMs: number;
+  /** Random client nonce (base64url). */
+  clientNonce: string;
+  /** HMAC-SHA256 signature (base64url). */
+  signature: string;
 }
 
 /** Payload for STATUS_UPDATE messages. */

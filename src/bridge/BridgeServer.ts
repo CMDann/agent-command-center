@@ -7,10 +7,12 @@ import {
   parseMessage,
   type BridgeMessage,
   type AuthPayload,
+  type AuthChallengePayload,
   type StatusUpdatePayload,
   type LogLinePayload,
   type TaskCompletePayload,
 } from './protocol.js';
+import { createAuthChallenge, MemoryReplayCache, verifyAuth, type AuthChallengePayload as Challenge } from './auth.js';
 import type { Task } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -30,7 +32,7 @@ const PONG_TIMEOUT_MS = 10_000;
 
 /** Sent when the AUTH timeout expires without a valid AUTH message. */
 const CLOSE_AUTH_TIMEOUT = 4001;
-/** Sent when the provided secret does not match `NEXUS_BRIDGE_SECRET`. */
+/** Sent when the provided auth proof is invalid. */
 const CLOSE_AUTH_FAILED = 4002;
 
 // ---------------------------------------------------------------------------
@@ -38,13 +40,11 @@ const CLOSE_AUTH_FAILED = 4002;
 // ---------------------------------------------------------------------------
 
 interface ClientState {
-  /** True after AUTH has been successfully validated. */
   authenticated: boolean;
-  /** The agent ID this remote client represents (set during AUTH). */
   agentId: string;
-  /** Timeout that closes the socket if AUTH doesn't arrive in time. */
+  challenge: Challenge;
+  replayCache: MemoryReplayCache;
   authTimer: NodeJS.Timeout;
-  /** Current outstanding PONG timer (null when no PING is in-flight). */
   pongTimer: NodeJS.Timeout | null;
 }
 
@@ -52,44 +52,16 @@ interface ClientState {
 // BridgeServer
 // ---------------------------------------------------------------------------
 
-/**
- * WebSocket server that remote OpenClaw agents connect to.
- *
- * ### Connection lifecycle
- * 1. Client connects → server starts a 5 s AUTH timeout.
- * 2. Client sends `AUTH { secret, agentId }` → server validates.
- *    - Wrong secret → close(4002).
- *    - Timeout → close(4001).
- * 3. Server sends `AUTH_ACK`.
- * 4. Server sends `PING` every 30 s; if no `PONG` within 10 s → close.
- * 5. Client sends `STATUS_UPDATE`, `LOG_LINE`, `TASK_COMPLETE` messages.
- *    Server emits these as typed events for {@link OpenClawAdapter} to consume.
- *
- * ### Events emitted
- * | Event | Args | Description |
- * |-------|------|-------------|
- * | `'client:connected'` | `agentId: string` | Auth succeeded |
- * | `'client:disconnected'` | `agentId: string` | Socket closed |
- * | `'agent:status'` | `agentId: string, status: string` | Remote status change |
- * | `'agent:log'` | `agentId: string, line: string` | Remote log line |
- * | `'agent:task_complete'` | `agentId: string, payload` | Remote task done |
- */
 export class BridgeServer extends EventEmitter {
   private readonly wss: WebSocketServer;
-  private readonly secret: string;
-  /** Map of authenticated WebSocket → client state. */
+  private readonly tokens: Record<string, string>;
   private readonly clients = new Map<WebSocket, ClientState>();
-  /** Reverse lookup: agentId → WebSocket. */
   private readonly agentSockets = new Map<string, WebSocket>();
   private pingInterval: NodeJS.Timeout | null = null;
 
-  /**
-   * @param port   - TCP port to listen on (default: 7777).
-   * @param secret - Pre-shared secret for AUTH validation.
-   */
-  constructor(port: number, secret: string) {
+  constructor(port: number, tokens: Record<string, string>) {
     super();
-    this.secret = secret;
+    this.tokens = tokens;
     this.wss = new WebSocketServer({ port });
     this.wss.on('connection', (ws) => this.onConnection(ws));
     this.wss.on('listening', () => {
@@ -98,17 +70,6 @@ export class BridgeServer extends EventEmitter {
     this.startHeartbeat();
   }
 
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Dispatches a task to the remote agent identified by `agentId`.
-   *
-   * @param agentId - The target agent.
-   * @param task    - The task to dispatch.
-   * @throws If the agent is not connected.
-   */
   dispatchTask(agentId: string, task: Task): void {
     const ws = this.agentSockets.get(agentId);
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -121,25 +82,16 @@ export class BridgeServer extends EventEmitter {
     logger.info({ agentId, taskId: (task as { id: string }).id }, 'Task dispatched via bridge');
   }
 
-  /**
-   * Returns true if the given agent is currently connected and authenticated.
-   *
-   * @param agentId - The agent to check.
-   */
   isConnected(agentId: string): boolean {
     const ws = this.agentSockets.get(agentId);
     return ws !== undefined && ws.readyState === WebSocket.OPEN;
   }
 
-  /**
-   * Shuts down the WebSocket server and clears all timers.
-   */
   async close(): Promise<void> {
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
-    // Clear all outstanding timers and close all client sockets.
     for (const [ws, state] of this.clients) {
       clearTimeout(state.authTimer);
       if (state.pongTimer) clearTimeout(state.pongTimer);
@@ -156,10 +108,6 @@ export class BridgeServer extends EventEmitter {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Connection handling
-  // ---------------------------------------------------------------------------
-
   private onConnection(ws: WebSocket): void {
     logger.debug('BridgeServer: new connection');
 
@@ -168,9 +116,14 @@ export class BridgeServer extends EventEmitter {
       ws.close(CLOSE_AUTH_TIMEOUT, 'AUTH timeout');
     }, AUTH_TIMEOUT_MS);
 
+    const challenge = createAuthChallenge();
+    ws.send(JSON.stringify(createMessage<AuthChallengePayload>(MessageType.AUTH_CHALLENGE, '', challenge)));
+
     const state: ClientState = {
       authenticated: false,
       agentId: '',
+      challenge,
+      replayCache: new MemoryReplayCache(),
       authTimer,
       pongTimer: null,
     };
@@ -202,18 +155,25 @@ export class BridgeServer extends EventEmitter {
   private handleAuth(ws: WebSocket, state: ClientState, msg: BridgeMessage): void {
     if (msg.type !== MessageType.AUTH) {
       logger.warn({ type: msg.type }, 'BridgeServer: expected AUTH but got different type');
-      ws.close(CLOSE_AUTH_FAILED, 'Expected AUTH');
+      ws.close(CLOSE_AUTH_FAILED, 'Unauthorized');
       return;
     }
 
     const payload = msg.payload as AuthPayload;
-    if (payload.secret !== this.secret) {
-      logger.warn('BridgeServer: AUTH failed — wrong secret');
-      ws.close(CLOSE_AUTH_FAILED, 'Invalid secret');
+
+    const verified = verifyAuth({
+      agentId: msg.agentId,
+      challenge: state.challenge,
+      payload,
+      opts: { tokens: this.tokens, replayCache: state.replayCache },
+    });
+
+    if (!verified.ok) {
+      logger.warn({ code: verified.code }, 'BridgeServer: AUTH failed');
+      ws.close(CLOSE_AUTH_FAILED, 'Unauthorized');
       return;
     }
 
-    // Auth passed.
     clearTimeout(state.authTimer);
     state.authenticated = true;
     state.agentId = msg.agentId;
@@ -222,7 +182,7 @@ export class BridgeServer extends EventEmitter {
     const ack = createMessage(MessageType.AUTH_ACK, msg.agentId, {});
     ws.send(JSON.stringify(ack));
 
-    logger.info({ agentId: msg.agentId }, 'BridgeServer: client authenticated');
+    logger.info({ agentId: msg.agentId, tokenId: verified.tokenId }, 'BridgeServer: client authenticated');
     this.emit('client:connected', msg.agentId);
   }
 
@@ -246,7 +206,6 @@ export class BridgeServer extends EventEmitter {
         break;
       }
       case MessageType.PONG:
-        // Handled by the 'pong' WebSocket frame event — nothing to do here.
         break;
       default:
         logger.warn({ type: msg.type }, 'BridgeServer: unexpected message type from client');
@@ -271,17 +230,12 @@ export class BridgeServer extends EventEmitter {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Heartbeat
-  // ---------------------------------------------------------------------------
-
   private startHeartbeat(): void {
     this.pingInterval = setInterval(() => {
       for (const [ws, state] of this.clients) {
         if (!state.authenticated) continue;
         if (ws.readyState !== WebSocket.OPEN) continue;
 
-        // Start a PONG timeout; clear it when we receive 'pong'.
         state.pongTimer = setTimeout(() => {
           logger.warn({ agentId: state.agentId }, 'BridgeServer: PONG timeout — terminating');
           ws.terminate();
