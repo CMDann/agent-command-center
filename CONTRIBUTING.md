@@ -1,6 +1,10 @@
 # Contributing to NEXUS
 
-Thank you for your interest in contributing to NEXUS! This document covers how to contribute code, report issues, and work alongside the AI agents that co-develop this project.
+Thanks for contributing! This repo is still in an early scaffold stage, so the most valuable contributions right now are:
+
+- Tightening the developer experience (setup, scripts, docs)
+- Small, test-backed increments to existing services and UI panels
+- Converting “planned” docs into concrete, incremental milestones
 
 ---
 
@@ -13,7 +17,6 @@ Thank you for your interest in contributing to NEXUS! This document covers how t
 5. [Pull Request Guidelines](#5-pull-request-guidelines)
 6. [Working Alongside AI Agents](#6-working-alongside-ai-agents)
 7. [Review Process](#7-review-process)
-8. [Release Process](#8-release-process)
 
 ---
 
@@ -33,29 +36,33 @@ All contributors — human and AI — are expected to:
 
 ### Prerequisites
 
-Ensure you have:
 - Node.js 20+
-- `gh` CLI authenticated (`gh auth login`)
 - `git` configured with your name and email
-- Optional: `claude` CLI or `codex` CLI for running agents locally
+- Optional: `gh` CLI authenticated (`gh auth login`)
+- Optional: `claude` CLI or `codex` CLI for connecting local agents from the TUI
 
 ### Setup
 
 ```bash
-git clone https://github.com/your-org/nexus.git
-cd nexus
+git clone https://github.com/CMDann/agent-command-center.git
+cd agent-command-center
+
 npm install
+
+# Optional: enable GitHub-backed Tasks panel
 cp .env.example .env
-# Edit .env with your GITHUB_TOKEN and optionally NEXUS_BRIDGE_SECRET
+# Edit .env with your GITHUB_TOKEN and repo coordinates
+
 npm start
 ```
 
-### Running Tests
+### Running checks
 
 ```bash
-npm test              # Run all tests
-npm run test:watch    # Watch mode
-npm run coverage      # Coverage report
+npm test              # vitest (one-shot)
+npm run lint          # eslint
+npm run typecheck     # tsc --noEmit
+npm run build         # tsc emit (sanity check)
 ```
 
 ### Linting, Type Checking, and Smoke Checks
@@ -78,50 +85,34 @@ npm run format:check  # Verify formatting (no changes)
 
 ## 3. Development Workflow
 
-NEXUS uses a **trunk-based development** model with short-lived feature branches.
+We use short-lived branches off `main`.
 
 ```
-main (protected)
-  └── feat/contributor-panel        ← human feature branch
-  └── nexus/task-42-fix-auth        ← AI agent branch (auto-named)
-  └── fix/bridge-reconnect          ← human bugfix branch
+main
+  └── feat/something-small
+  └── fix/something-broken
+  └── docs/something-unclear
 ```
 
-### Step-by-Step
+### Step-by-step
 
 1. **Find or create an issue** — All work starts with a GitHub issue
-2. **Create a branch** — Follow naming conventions in `CODING_STANDARDS.md`
+2. **Create a branch** — Prefer `feat/…`, `fix/…`, `docs/…`
 3. **Make changes** — Keep commits small and focused
-4. **Test locally** — All tests must pass before opening a PR
-5. **Open a PR** — Reference the issue, fill in the PR template
-6. **Respond to review** — Address all comments before requesting re-review
-7. **Merge** — Squash merge to keep main history clean
+4. **Run checks locally** — `npm run lint && npm run typecheck && npm test`
+5. **Open a PR** — Reference the issue
+6. **Respond to review** — Address comments before requesting re-review
 
 ---
 
 ## 4. Issue Guidelines
 
-### Before Opening an Issue
+### Before opening an issue
 
 - Search existing issues to avoid duplicates
-- If it's a bug, try to reproduce it with minimal steps
-- If it's a feature, check the roadmap in `IMPLEMENTATION_PLAN.md` first
+- If it’s a feature, check the current roadmap in [IMPLEMENTATION.md](./IMPLEMENTATION.md)
 
-### Issue Labels
-
-| Label | Meaning |
-|-------|---------|
-| `bug` | Something is broken |
-| `feat` | New feature request |
-| `docs` | Documentation improvement |
-| `claude` | Suitable for Claude Code agent |
-| `codex` | Suitable for OpenCodex agent |
-| `openclaw` | Suitable for OpenClaw remote agent |
-| `human` | Requires human judgment |
-| `blocked` | Waiting on another issue or external factor |
-| `good first issue` | Low complexity, good for new contributors |
-
-### Writing a Good Issue
+### Writing a good issue
 
 ```markdown
 ## Summary
@@ -130,36 +121,25 @@ One sentence describing the problem or feature.
 ## Context
 Why does this matter? What's the impact?
 
-## Steps to Reproduce (for bugs)
-1. Step 1
-2. Step 2
-3. Observed: ...
-4. Expected: ...
-
 ## Acceptance Criteria
 - [ ] Criterion 1
 - [ ] Criterion 2
 
 ## Notes
-Any additional context, links, or constraints.
+Links, constraints, or references.
 ```
 
 ---
 
 ## 5. Pull Request Guidelines
 
-### PR Title Format
-```
-[Type] Short description (#issueNumber)
-```
-Examples:
-```
-[feat] Add OpenClaw remote agent adapter (#23)
-[fix] Reconnect logic on bridge auth failure (#31)
-[docs] Update configuration reference (#18)
-```
+### PR rules
 
-### PR Body Template
+- **One issue per PR** — don’t bundle unrelated changes
+- **All checks must pass** — lint, typecheck, tests
+- **Keep PRs small** — under ~400 lines of change is ideal
+
+### Helpful PR body
 
 ```markdown
 ## Summary
@@ -171,122 +151,43 @@ What does this PR do?
 - Fixed Z
 
 ## Testing
-How was this tested? What tests were added?
+How was this tested?
 
-## Screenshots / Output
-(Optional) TUI screenshot or relevant log output
-
-Closes #issueNumber
+Fixes #issueNumber
 ```
-
-### PR Rules
-
-- **One issue per PR** — Don't bundle unrelated changes
-- **All CI checks must pass** — lint, typecheck, tests
-- **No direct pushes to `main`** — this branch is protected
-- **Keep PRs small** — under 400 lines of change is ideal
-- **AI agent PRs** are tagged `[NEXUS]` automatically — these follow the same rules
 
 ---
 
 ## 6. Working Alongside AI Agents
 
-NEXUS is partially developed by AI coding agents. Here's what that means for human contributors:
+This project experiments with AI-assisted development.
 
-### Agent-Opened PRs
+Today, that mostly means:
 
-When an agent opens a PR:
-- The PR title will be prefixed with `[NEXUS]`
-- The branch will follow the pattern `nexus/task-{issue}-{slug}`
-- A comment on the original issue will link to the PR
+- Code is written with clear interfaces and tests so an agent can make safe, incremental changes.
+- Issues are written with concrete acceptance criteria.
 
-Human contributors should:
-- Review agent PRs with the same rigour as human PRs
-- Leave specific, actionable review comments (agents can read and act on them)
-- Approve or request changes via GitHub's review system — agents will pick this up
+Planned automation (not guaranteed yet):
 
-### Assigning Work to Agents vs. Humans
+- Agent-opened PR conventions, labels, and routing rules
+- Guardrails that restrict what agents may do without human review
 
-Use labels to signal intent:
-- Add `claude`, `codex`, or `openclaw` to route to that agent type
-- Add `human` for tasks requiring judgment, design decisions, or external communication
-- Untagged issues enter the auto-assignment pool
+When reviewing agent-authored changes:
 
-### Reviewing Agent Work
-
-Agents are good at:
-- Implementing well-specified features with clear acceptance criteria
-- Writing tests for existing code
-- Refactoring with clear before/after expectations
-- Fixing bugs with reproducible steps
-
-Be more careful reviewing agent work that involves:
-- Security-sensitive code (auth, secrets handling)
-- Complex algorithmic decisions
-- UX/interaction design choices
-- Integration with external services
+- Hold them to the same standard as human PRs
+- Prefer review comments that are specific and actionable
 
 ---
 
 ## 7. Review Process
 
-### For Human PRs
 - At least **1 approval** from a maintainer required
-- Author cannot approve their own PR
-- Stale reviews (>7 days with no activity) will be pinged
-
-### For Agent PRs
-- At least **1 human approval** required
-- CI must pass
-- Maintainer may use "auto-merge on approval" for low-risk agent PRs
-
-### Review Etiquette
-
-```
-# ✅ Good review comment
-"This reconnect logic will retry indefinitely if the host is valid but the 
-secret is wrong. Consider adding a max retry count for auth failures specifically 
-(separate from network failures)."
-
-# ❌ Not helpful
-"This looks wrong."
-```
-
-Prefix comments with:
-- **`nit:`** — Minor style preference, not blocking
-- **`question:`** — Genuine question, not necessarily a change request
-- **`blocking:`** — Must be addressed before merge
-- **`suggestion:`** — Optional improvement
+- CI (or local checks) must pass
+- Prefer squash merges for a clean `main` history
 
 ---
 
-## 8. Release Process
+## References
 
-Releases follow [Semantic Versioning](https://semver.org/):
-- **MAJOR** — breaking changes to config format or CLI interface
-- **MINOR** — new features, new agent adapters
-- **PATCH** — bug fixes, performance improvements
-
-### Release Steps
-
-1. Update `CHANGELOG.md` with all changes since last release
-2. Bump version in `package.json`
-3. Open a PR titled `[release] vX.Y.Z`
-4. After merge: tag the commit `vX.Y.Z` on main
-5. GitHub Actions will publish to npm automatically
-
-### CHANGELOG Format
-
-```markdown
-## [1.1.0] — 2026-05-01
-
-### Added
-- SSH tunnel support for remote agent bridge (#45)
-- Contributor detail view in TUI (#52)
-
-### Fixed  
-- Bridge reconnect not triggering after clean disconnect (#48)
-
-### Changed
-- Auto-assignment now prefers agents by workdir match before label match (#50)
-```
+- Coding standards: [CODINGSTANDARDS.md](./CODINGSTANDARDS.md)
+- Implementation / roadmap: [IMPLEMENTATION.md](./IMPLEMENTATION.md)

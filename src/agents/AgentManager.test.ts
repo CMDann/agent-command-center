@@ -130,10 +130,12 @@ describe('AgentManager', () => {
       expect(sessions[0]?.workdir).toBe('/new/path');
     });
 
-    it('throws AgentError for openclaw type (bridge not yet implemented)', () => {
+    it('registers an openclaw agent via OpenClawAdapter', () => {
+      // openclaw no longer throws — it creates an OpenClawAdapter
       expect(() =>
         manager.register({ id: 'oc-1', type: 'openclaw', autopr: true })
-      ).toThrow(AgentError);
+      ).not.toThrow();
+      expect(manager.listAgents().find((s) => s.id === 'oc-1')).toBeDefined();
     });
   });
 

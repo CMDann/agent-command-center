@@ -13,6 +13,21 @@ export type AgentType = 'claude' | 'codex' | 'openclaw';
 /** Lifecycle status of an agent session. */
 export type AgentStatus = 'idle' | 'working' | 'error' | 'disconnected';
 
+/**
+ * SSH gateway configuration used to tunnel the bridge WebSocket connection
+ * through an SSH server. Requires key-based authentication.
+ */
+export interface SshTunnelConfig {
+  /** Hostname of the SSH server. */
+  host: string;
+  /** SSH port (default: 22). */
+  port?: number;
+  /** SSH username. */
+  user: string;
+  /** Absolute path to the private key file used for authentication. */
+  keyPath: string;
+}
+
 /** Static configuration for a single agent, as stored in nexus.config.json. */
 export interface AgentConfig {
   id: string;
@@ -22,6 +37,8 @@ export interface AgentConfig {
   port?: number;
   transport?: 'ssh' | 'websocket';
   autopr: boolean;
+  /** When present, the bridge connection is tunnelled through this SSH gateway. */
+  sshTunnel?: SshTunnelConfig;
 }
 
 /** Runtime session state for a connected agent. */
