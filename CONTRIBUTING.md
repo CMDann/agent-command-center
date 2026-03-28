@@ -65,10 +65,20 @@ npm run typecheck     # tsc --noEmit
 npm run build         # tsc emit (sanity check)
 ```
 
+### Linting, Type Checking, and Smoke Checks
+
+```bash
+npm run lint          # ESLint (repo-wide)
+npm run typecheck     # TypeScript typecheck (no emit)
+npm run build         # Build to dist/
+npm run smoke         # Non-interactive startup check (CI-friendly)
+```
+
 ### Formatting
 
 ```bash
-npm run format        # prettier --write src
+npm run format        # Prettier auto-format
+npm run format:check  # Verify formatting (no changes)
 ```
 
 ---
