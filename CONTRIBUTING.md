@@ -58,12 +58,20 @@ npm run test:watch    # Watch mode
 npm run coverage      # Coverage report
 ```
 
-### Linting & Type Checking
+### Linting, Type Checking, and Smoke Checks
 
 ```bash
-npm run lint          # ESLint
-npm run typecheck     # TypeScript strict check
+npm run lint          # ESLint (repo-wide)
+npm run typecheck     # TypeScript typecheck (no emit)
+npm run build         # Build to dist/
+npm run smoke         # Non-interactive startup check (CI-friendly)
+```
+
+### Formatting
+
+```bash
 npm run format        # Prettier auto-format
+npm run format:check  # Verify formatting (no changes)
 ```
 
 ---

@@ -58,6 +58,16 @@ cp .env.example .env
 npm start
 ```
 
+### Developer checks
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run smoke
+```
+
 ---
 
 ## Configuration
