@@ -207,18 +207,9 @@ export class BridgeServer extends EventEmitter {
     }
 
     const payload = msg.payload as AuthPayload;
-
-    const verified = verifyAuth({
-      agentId: msg.agentId,
-      challenge: state.challenge,
-      payload,
-      opts: { tokens: this.tokens, replayCache: state.replayCache },
-    });
-
-    if (!verified.ok) {
-      // Don't leak secrets; only provide a coarse reason.
-      logger.warn({ code: verified.code }, 'BridgeServer: AUTH failed');
-      ws.close(CLOSE_AUTH_FAILED, 'Unauthorized');
+    if (payload.secret !== this.secret) {
+      logger.warn('BridgeServer: AUTH failed — wrong secret');
+      ws.close(CLOSE_AUTH_FAILED, 'Invalid secret');
       return;
     }
 
@@ -231,7 +222,7 @@ export class BridgeServer extends EventEmitter {
     const ack = createMessage(MessageType.AUTH_ACK, msg.agentId, {});
     ws.send(JSON.stringify(ack));
 
-    logger.info({ agentId: msg.agentId, tokenId: verified.tokenId }, 'BridgeServer: client authenticated');
+    logger.info({ agentId: msg.agentId }, 'BridgeServer: client authenticated');
     this.emit('client:connected', msg.agentId);
   }
 
