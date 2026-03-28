@@ -1,5 +1,5 @@
 # NEXUS
-### Multi-Agent Terminal Orchestration Platform
+### Agent Command Center (early scaffold)
 
 ```
 ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗
@@ -10,20 +10,48 @@
 ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
 ```
 
-**NEXUS** is a terminal-based multi-agent orchestration dashboard that unifies AI coding agents (Claude Code, OpenCodex, OpenClaw), GitHub project management, Git tracking, and human contributor coordination into a single TUI (Terminal User Interface).
+**NEXUS** is a terminal dashboard (Ink/React) intended to coordinate AI coding agents and human contributors.
+
+This repository is currently in an **early scaffold phase**: the TUI layout and core services exist, but many “big vision” features are not wired end-to-end yet.
 
 ---
 
-## Features
+## Current status (reality check)
 
-- 🤖 **Multi-Agent Support** — Connect Claude Code, OpenCodex, and remote OpenClaw agents
-- 🌐 **Remote Agent Connections** — SSH/WebSocket bridge for agents running on separate machines
-- 📋 **GitHub Integration** — Issue creation, PR tracking, TODO management via `gh` CLI
-- 🔀 **Git Tracking** — Local diff, branch, commit, and status monitoring
-- 👥 **Human Contributor Management** — View, assign, and track human contributors alongside agents
-- 📁 **Sub-repository Support** — Manage monorepos and multi-repo workspaces
-- 🎯 **Intelligent Task Assignment** — Route tasks to the right agent or person based on context
-- 🔄 **PR Enforcement** — All agent commits are automatically wrapped in pull requests
+What you can expect **today**:
+
+- A running Ink-based TUI with panels for:
+  - **Git status** (branch + dirty state + file lists)
+  - **Sub-repo detection** (best-effort scan for nested git repos)
+  - **GitHub issues** panel (requires env vars)
+  - **Agents panel** (local agent sessions)
+  - **Log panel**
+- TypeScript project scaffold with lint/typecheck/tests.
+
+What is **planned / in-progress** (not fully implemented or not hooked up):
+
+- Remote agent connections (SSH/WebSocket bridge)
+- Intelligent task routing / assignment policies
+- PR enforcement / “all agent commits go through PRs” automation
+- Rich contributor management beyond basic GitHub collaborator data
+
+If you’re evaluating the project: treat it as a solid starting point and UI skeleton, not a finished orchestration platform.
+
+---
+
+## Implemented features (now)
+
+- **Local agent sessions (WIP)** — connect to local `claude` or `codex` CLIs from the TUI
+- **Git status** — status + staged/modified/untracked lists
+- **GitHub issues panel** — list open issues via Octokit (requires `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`)
+- **Config loader** — loads `nexus.config.json` with schema validation
+
+## Planned features
+
+- **Remote agents** — OpenClaw agents on other machines via a secure bridge
+- **Task lifecycle automation** — issue → branch → PR → checks → merge workflows
+- **Multi-repo workspaces** — richer sub-repo mapping + context switching
+- **Policy & guardrails** — configurable rules for what agents may do
 
 ---
 
@@ -32,107 +60,52 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Node.js | ≥ 20.x | Runtime |
-| `gh` CLI | ≥ 2.x | GitHub integration |
 | `git` | ≥ 2.x | Version control |
-| `claude` CLI | latest | Claude Code sessions |
-| `codex` CLI | latest | OpenCodex sessions |
-| SSH access | — | Remote OpenClaw agents |
+| (optional) `gh` CLI | ≥ 2.x | Convenience for humans (not required for the running scaffold) |
+| (optional) `claude` CLI | latest | Local Claude agent sessions |
+| (optional) `codex` CLI | latest | Local Codex agent sessions |
 
 ---
 
-## Quick Start
+## Quick start (verifiably runnable)
 
 ```bash
-# Clone the repo
-git clone https://github.com/your-org/nexus.git
-cd nexus
+git clone https://github.com/CMDann/agent-command-center.git
+cd agent-command-center
 
-# Install dependencies
 npm install
 
-# Configure your environment
+# Optional: enable GitHub Tasks panel
 cp .env.example .env
-# Edit .env with your tokens and agent endpoints
+# Set GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO in .env
 
-# Launch NEXUS
 npm start
 ```
 
----
+### Notes
 
-## Configuration
-
-NEXUS is configured via `nexus.config.json` in your project root:
-
-```json
-{
-  "workspace": "/path/to/your/project",
-  "github": {
-    "owner": "your-org",
-    "repo": "your-repo"
-  },
-  "agents": [
-    {
-      "id": "claude-local",
-      "type": "claude",
-      "workdir": "./",
-      "autopr": true
-    },
-    {
-      "id": "openclaw-remote",
-      "type": "openclaw",
-      "host": "192.168.1.100",
-      "port": 7777,
-      "transport": "websocket"
-    }
-  ],
-  "subrepos": [
-    { "name": "frontend", "path": "./packages/frontend" },
-    { "name": "api",      "path": "./packages/api" }
-  ]
-}
-```
+- Without the GitHub env vars, the Tasks panel will show a friendly “not configured” message.
+- Without the `claude` / `codex` CLIs installed, you can still run the TUI, but connecting agents will fail.
 
 ---
 
-## Architecture
+## Project layout (current)
 
 ```
-nexus/
-├── src/
-│   ├── ui/              # Blessed/Ink TUI components
-│   ├── agents/          # Agent adapters (claude, codex, openclaw)
-│   ├── bridge/          # SSH/WebSocket remote agent bridge
-│   ├── github/          # gh CLI wrapper + Octokit client
-│   ├── git/             # Local git integration (simple-git)
-│   ├── tasks/           # Task queue and assignment engine
-│   ├── contributors/    # Human contributor registry
-│   └── config/          # Config loader and validator
-├── nexus.config.json    # Project configuration
-├── .env.example         # Environment variable template
-└── docs/                # Extended documentation
+src/
+  agents/       # agent adapters + session manager (local adapters today)
+  config/       # config schema + loader
+  git/          # git service used by the UI
+  github/       # GitHub service (Octokit)
+  ui/           # Ink UI components (panels + modal)
+  utils/        # logger, helpers
 ```
-
----
-
-## Key Concepts
-
-### Agents
-An **Agent** is any autonomous coding entity NEXUS can dispatch tasks to. Agents can be:
-- **Local** — Running on the same machine (Claude Code, OpenCodex)
-- **Remote** — Running on a separate host (OpenClaw via SSH/WebSocket)
-
-### Tasks
-A **Task** maps to a GitHub Issue. NEXUS can auto-generate tasks from natural language, assign them to agents or humans, and track their completion via PR status.
-
-### Sessions
-A **Session** is an active agent process bound to a working directory. Multiple sessions can run concurrently across different directories or subrepos.
 
 ---
 
 ## License
 
-MIT — See [LICENSE.md](./LICENSE.md)
+MIT — see [LICENS.md](./LICENS.md)
 
 ## Contributing
 
