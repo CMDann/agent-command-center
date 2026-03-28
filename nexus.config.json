@@ -1,0 +1,9 @@
+{
+  "workspace": ".",
+  "repos": [],
+  "bridge": {
+    "port": 7777,
+    "host": "localhost"
+  },
+  "agents": []
+}
