@@ -1,13 +1,13 @@
 import React, { useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { useGitHubStore } from '../hooks/useGitHubStore.js';
-import type { Issue } from '../../types.js';
+import type { IssueSummary } from '../../types.js';
 
 /** Max issues to display before truncating. */
 const MAX_ISSUES = 15;
 
 /** Renders a single issue row. */
-const IssueRow: React.FC<{ issue: Issue }> = ({ issue }) => (
+const IssueRow: React.FC<{ issue: IssueSummary }> = ({ issue }) => (
   <Box flexDirection="row" marginTop={1}>
     {/* Issue number */}
     <Text color="cyan">#{String(issue.issueNumber).padStart(3, ' ')} </Text>

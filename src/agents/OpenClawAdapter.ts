@@ -1,6 +1,7 @@
 import { AgentAdapter, AgentError } from './AgentAdapter.js';
 import { BridgeServer } from '../bridge/BridgeServer.js';
 import { BridgeClient, openSshTunnel } from '../bridge/BridgeClient.js';
+import { loadBridgeTokensFromEnv } from '../bridge/tokens.js';
 import { logger } from '../utils/logger.js';
 import type { AgentConfig, AgentStatus, Task } from '../types.js';
 import type { SshTunnel } from '../bridge/BridgeClient.js';

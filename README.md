@@ -77,7 +77,8 @@ npm install
 
 # Optional: enable GitHub Tasks panel
 cp .env.example .env
-# Set GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO in .env
+# Edit .env with your GitHub repo coordinates and tokens (never commit .env)
+# Required for the Tasks panel: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO
 
 npm start
 ```
@@ -87,15 +88,36 @@ npm start
 - Without the GitHub env vars, the Tasks panel will show a friendly “not configured” message.
 - Without the `claude` / `codex` CLIs installed, you can still run the TUI, but connecting agents will fail.
 
-### Developer checks
+## Configuration
 
-```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npm run smoke
+NEXUS is configured via `nexus.config.json` in your project root:
+
+```json
+{
+  "workspace": "/path/to/your/project",
+  "repos": [
+    { "name": "frontend", "path": "./packages/frontend" },
+    { "name": "api", "path": "./packages/api" }
+  ],
+  "agents": [
+    {
+      "id": "claude-local",
+      "type": "claude",
+      "workdir": "./",
+      "autopr": true
+    },
+    {
+      "id": "openclaw-remote",
+      "type": "openclaw",
+      "host": "192.168.1.100",
+      "port": 7777,
+      "transport": "websocket"
+    }
+  ]
+}
 ```
+
+GitHub repository coordinates and authentication are currently provided via environment variables (see `.env.example`).
 
 ---
 
