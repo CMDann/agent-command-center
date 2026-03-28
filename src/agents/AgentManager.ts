@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { ClaudeAdapter } from './ClaudeAdapter.js';
 import { CodexAdapter } from './CodexAdapter.js';
 import { OpenClawAdapter } from './OpenClawAdapter.js';
-import { AgentAdapter } from './AgentAdapter.js';
+import { AgentAdapter, type TaskCompleteResult } from './AgentAdapter.js';
 import { logger } from '../utils/logger.js';
 import type { AgentConfig, AgentSession, AgentStatus, AgentType, Task } from '../types.js';
 
@@ -139,6 +139,15 @@ export class AgentManager extends EventEmitter {
     this.on('agent:log', cb);
   }
 
+  /**
+   * Registers a callback that fires whenever an agent completes a task.
+   *
+   * @param cb - Called with the agent ID and task completion result.
+   */
+  onTaskComplete(cb: (agentId: string, result: TaskCompleteResult) => void): void {
+    this.on('agent:task_complete', cb);
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -165,8 +174,8 @@ export class AgentManager extends EventEmitter {
       this.emit('agent:log', adapter.id, line);
     });
 
-    adapter.on('task_complete', () => {
-      this.emit('agent:task_complete', adapter.id);
+    adapter.on('task_complete', (result) => {
+      this.emit('agent:task_complete', adapter.id, result);
     });
   }
 }

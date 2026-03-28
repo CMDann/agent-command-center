@@ -9,10 +9,14 @@
   "scripts": {
     "start": "tsx src/index.tsx",
     "build": "tsc",
+    "smoke": "NEXUS_SMOKE=1 node dist/index.js",
     "test": "vitest run",
-    "lint": "eslint src",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write src"
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@octokit/rest": "^21.0.0",
@@ -33,6 +37,7 @@
     "@types/ssh2": "^1.15.0",
     "@types/ws": "^8.5.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^10.1.0",
     "prettier": "^3.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",

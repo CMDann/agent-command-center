@@ -52,7 +52,10 @@ npm install
 
 # Configure your environment
 cp .env.example .env
-# Edit .env with your tokens and agent endpoints
+# Edit .env with your GitHub repo coordinates and tokens (never commit .env)
+# Required for the Tasks panel: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO
+# Optional for remote agents/bridge auth: NEXUS_BRIDGE_SECRET
+# Optional explicit config path: NEXUS_CONFIG_PATH
 
 # Launch NEXUS
 npm start
@@ -67,6 +70,37 @@ npm test
 npm run build
 npm run smoke
 ```
+
+## Configuration
+
+NEXUS is configured via `nexus.config.json` in your project root:
+
+```json
+{
+  "workspace": "/path/to/your/project",
+  "repos": [
+    { "name": "frontend", "path": "./packages/frontend" },
+    { "name": "api", "path": "./packages/api" }
+  ],
+  "agents": [
+    {
+      "id": "claude-local",
+      "type": "claude",
+      "workdir": "./",
+      "autopr": true
+    },
+    {
+      "id": "openclaw-remote",
+      "type": "openclaw",
+      "host": "192.168.1.100",
+      "port": 7777,
+      "transport": "websocket"
+    }
+  ]
+}
+```
+
+GitHub repository coordinates and authentication are currently provided via environment variables (see `.env.example`).
 
 ---
 
