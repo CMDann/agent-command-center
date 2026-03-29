@@ -1,6 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import { logger } from '../utils/logger.js';
-import type { Issue, CreateIssueInput } from '../types.js';
+import type { Issue, CreateIssueInput, CreatePRInput, PR } from '../types.js';
 import { GitHubServiceError } from './GitHubService.js';
 
 // ---------------------------------------------------------------------------
@@ -85,6 +85,43 @@ export class GitHubWriteService {
       const statusCode = (err as { status?: number }).status;
       logger.error({ title: input.title, err }, 'createIssue failed');
       throw new GitHubServiceError('Failed to create issue', statusCode, err);
+    }
+  }
+
+  /**
+   * Opens a pull request in the configured repository.
+   *
+   * @param input - PR title, optional body, head branch, and base branch.
+   * @returns The newly created {@link PR}.
+   * @throws {GitHubServiceError} If the API call fails.
+   */
+  async createPR(input: CreatePRInput): Promise<PR> {
+    try {
+      const { data } = await this.octokit.rest.pulls.create({
+        owner: this.owner,
+        repo: this.repo,
+        title: input.title,
+        body: input.body,
+        head: input.head,
+        base: input.base,
+      });
+
+      logger.info({ prNumber: data.number, title: data.title }, 'Pull request created');
+
+      return {
+        prNumber: data.number,
+        title: data.title,
+        url: data.html_url,
+        status: data.draft ? 'draft' : 'open',
+        head: data.head.ref,
+        base: data.base.ref,
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.updated_at),
+      };
+    } catch (err) {
+      const statusCode = (err as { status?: number }).status;
+      logger.error({ head: input.head, err }, 'createPR failed');
+      throw new GitHubServiceError('Failed to create pull request', statusCode, err);
     }
   }
 

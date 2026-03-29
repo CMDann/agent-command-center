@@ -3,11 +3,27 @@ import { ClaudeAdapter } from './ClaudeAdapter.js';
 import { CodexAdapter } from './CodexAdapter.js';
 import { OpenClawAdapter } from './OpenClawAdapter.js';
 import { AgentAdapter, type TaskCompleteResult } from './AgentAdapter.js';
+import { AgentPRWrapper } from './AgentPRWrapper.js';
+import { GitService } from '../git/GitService.js';
+import { GitHubWriteService } from '../github/GitHubWriteService.js';
 import { logger } from '../utils/logger.js';
 import type { AgentConfig, AgentSession, AgentStatus, AgentType, Task } from '../types.js';
 
 /** Maximum log lines retained per agent to prevent unbounded memory growth. */
 const MAX_LOG_LINES = 200;
+
+/**
+ * Attempts to build a {@link GitHubWriteService} from environment variables.
+ * Returns `null` if the required env vars are missing or invalid (e.g. in tests
+ * or when GitHub integration is not configured).
+ */
+function tryBuildWriteService(): GitHubWriteService | null {
+  try {
+    return GitHubWriteService.fromEnv();
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Thrown when an operation targets an agent ID that has not been registered.
@@ -24,6 +40,8 @@ export class AgentNotFoundError extends Error {
  *
  * Responsibilities:
  * - Create the correct {@link AgentAdapter} subclass based on agent type.
+ * - Optionally wrap adapters with {@link AgentPRWrapper} when `config.autopr` is `true`
+ *   and GitHub write credentials are available.
  * - Forward adapter events to registered listeners.
  * - Maintain a per-agent log ring-buffer for the TUI.
  *
@@ -34,6 +52,24 @@ export class AgentManager extends EventEmitter {
   /** Ring-buffer of recent log lines per agent ID. */
   private readonly logBuffers = new Map<string, string[]>();
 
+  private readonly gitService: GitService;
+  private readonly writeService: GitHubWriteService | null;
+
+  /**
+   * @param gitService   - Git service used for branch/push operations in PR workflow.
+   *                       Defaults to a new {@link GitService} rooted at `process.cwd()`.
+   * @param writeService - GitHub write service for opening PRs and posting comments.
+   *                       Defaults to building from env vars; `null` disables auto-PR.
+   */
+  constructor(
+    gitService: GitService = new GitService(),
+    writeService: GitHubWriteService | null = tryBuildWriteService()
+  ) {
+    super();
+    this.gitService = gitService;
+    this.writeService = writeService;
+  }
+
   // ---------------------------------------------------------------------------
   // Registration
   // ---------------------------------------------------------------------------
@@ -42,14 +78,29 @@ export class AgentManager extends EventEmitter {
    * Creates and registers a new agent adapter without connecting it.
    * If an adapter with the same ID already exists, it is replaced.
    *
+   * When `config.autopr` is `true` and a write service is available the adapter
+   * is wrapped with {@link AgentPRWrapper} to enforce the PR workflow.
+   *
    * @param config - The agent configuration from `nexus.config.json` or the TUI.
    */
   register(config: AgentConfig): void {
-    const adapter = createAdapter(config);
+    const raw = createAdapter(config);
+
+    let adapter: AgentAdapter = raw;
+    if (config.autopr && this.writeService !== null) {
+      adapter = new AgentPRWrapper(
+        raw,
+        (repoPath) => new GitService(repoPath),
+        this.writeService,
+        config
+      );
+      logger.info({ agentId: config.id }, 'AgentPRWrapper: PR workflow enabled');
+    }
+
     this.adapters.set(config.id, adapter);
     this.logBuffers.set(config.id, []);
     this.wireAdapterEvents(adapter);
-    logger.info({ agentId: config.id, type: config.type }, 'Agent registered');
+    logger.info({ agentId: config.id, type: config.type, autopr: config.autopr }, 'Agent registered');
   }
 
   // ---------------------------------------------------------------------------

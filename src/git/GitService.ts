@@ -38,8 +38,8 @@ export class GitServiceError extends Error {
  * All methods operate on the `workdir` supplied at construction time.
  */
 export class GitService {
-  private readonly git: SimpleGit;
-  private readonly workdir: string;
+  private git: SimpleGit;
+  private workdir: string;
 
   /**
    * @param workdir - Absolute path to the git repository root. Defaults to `process.cwd()`.
@@ -47,6 +47,11 @@ export class GitService {
   constructor(workdir: string = process.cwd()) {
     this.workdir = workdir;
     this.git = simpleGit(workdir);
+  }
+
+  /** The absolute path this service is currently operating on. */
+  get activeWorkdir(): string {
+    return this.workdir;
   }
 
   /**
@@ -198,5 +203,50 @@ export class GitService {
     } catch (err) {
       throw new GitServiceError(`Failed to create branch '${name}'`, err);
     }
+  }
+
+  /**
+   * Pushes a local branch to a remote.
+   *
+   * @param branchName - The local branch to push.
+   * @param remote     - The remote name (default: `'origin'`).
+   * @throws {GitServiceError} If the push fails.
+   */
+  async pushBranch(branchName: string, remote = 'origin'): Promise<void> {
+    try {
+      await this.git.push(remote, branchName);
+      logger.info({ branchName, remote, workdir: this.workdir }, 'Branch pushed');
+    } catch (err) {
+      throw new GitServiceError(`Failed to push branch '${branchName}' to '${remote}'`, err);
+    }
+  }
+
+  /**
+   * Counts how many commits are on HEAD that are not reachable from `ref`.
+   * Used to verify that a feature branch has commits before opening a PR.
+   *
+   * @param ref - The reference to compare against (e.g. `'main'`).
+   * @returns Number of commits HEAD is ahead of `ref`.
+   * @throws {GitServiceError} If the git command fails.
+   */
+  async getCommitsAheadOf(ref: string): Promise<number> {
+    try {
+      const result = await this.git.raw(['rev-list', '--count', `${ref}..HEAD`]);
+      return parseInt(result.trim(), 10) || 0;
+    } catch (err) {
+      throw new GitServiceError(`Failed to count commits ahead of '${ref}'`, err);
+    }
+  }
+
+  /**
+   * Switches this service to operate on a different repository path.
+   * All subsequent git operations will target `repoPath`.
+   *
+   * @param repoPath - Absolute path of the new repository root.
+   */
+  switchContext(repoPath: string): void {
+    this.workdir = repoPath;
+    this.git = simpleGit(repoPath);
+    logger.info({ repoPath }, 'GitService: context switched');
   }
 }

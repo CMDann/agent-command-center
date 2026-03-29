@@ -87,7 +87,7 @@ export interface SubRepo {
 // ---------------------------------------------------------------------------
 
 /** Lifecycle status of a task as it moves through the workflow. */
-export type TaskStatus = 'backlog' | 'assigned' | 'in_progress' | 'review' | 'done';
+export type TaskStatus = 'backlog' | 'assigned' | 'in_progress' | 'review' | 'done' | 'error';
 
 /** Whether a task assignee is an AI agent or a human contributor. */
 export type AssigneeType = 'agent' | 'human';
