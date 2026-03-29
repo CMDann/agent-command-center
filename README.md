@@ -212,7 +212,7 @@ An **Agent** is any autonomous coding entity NEXUS can dispatch tasks to. Agents
 - **Remote** — Running on a separate host (OpenClaw via SSH/WebSocket)
 
 ### Tasks
-A **Task** maps to a GitHub Issue. NEXUS can auto-generate tasks from natural language, assign them to agents or humans, and track their completion via PR status.
+A **Task** is an internal lifecycle model backed by a GitHub Issue. NEXUS maps issue summaries into local task state, tracks assignment/progress/review independently of raw API responses, and stays read-only on the issue sync path.
 
 ### Sessions
 A **Session** is an active agent process bound to a working directory. Multiple sessions can run concurrently across different directories or subrepos.

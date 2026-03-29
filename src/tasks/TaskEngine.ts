@@ -42,6 +42,11 @@ interface PersistedAssignment {
 /**
  * In-memory priority queue for NEXUS tasks backed by GitHub Issues.
  *
+ * This is the internal task model used by the UI and orchestration layer.
+ * It deliberately decouples local task lifecycle from raw GitHub issue list
+ * responses so assignment, progress, review, and completion can be tracked
+ * consistently between sync cycles.
+ *
  * Handles:
  * - Enqueueing tasks from GitHub (idempotent — re-enqueue = update metadata).
  * - Manual and automatic assignment.
