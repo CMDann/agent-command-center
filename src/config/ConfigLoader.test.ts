@@ -48,11 +48,63 @@ describe('NexusConfigSchema', () => {
     ).toThrow(ZodError);
   });
 
-  it('enforces remote agent host/transport requirements', () => {
+  it('allows openclaw server mode with no host/transport', () => {
+    const config = NexusConfigSchema.parse({
+      workspace: '/projects/myapp',
+      agents: [{ id: 'openclaw-server', type: 'openclaw' }],
+    });
+
+    expect(config.agents[0]?.id).toBe('openclaw-server');
+  });
+
+  it('requires host and transport for openclaw client mode', () => {
     expect(() =>
       NexusConfigSchema.parse({
         workspace: '/projects/myapp',
-        agents: [{ id: 'openclaw-remote', type: 'openclaw' }],
+        agents: [{ id: 'openclaw-remote', type: 'openclaw', host: '10.0.0.5' }],
+      })
+    ).toThrow(ZodError);
+  });
+
+  it('requires port for openclaw websocket client mode', () => {
+    expect(() =>
+      NexusConfigSchema.parse({
+        workspace: '/projects/myapp',
+        agents: [{ id: 'openclaw-ws', type: 'openclaw', host: '10.0.0.5', transport: 'websocket' }],
+      })
+    ).toThrow(ZodError);
+  });
+
+  it('requires sshTunnel for openclaw ssh client mode', () => {
+    expect(() =>
+      NexusConfigSchema.parse({
+        workspace: '/projects/myapp',
+        agents: [{ id: 'openclaw-ssh', type: 'openclaw', host: '10.0.0.5', transport: 'ssh' }],
+      })
+    ).toThrow(ZodError);
+  });
+
+  it('rejects sshTunnel for websocket transport', () => {
+    expect(() =>
+      NexusConfigSchema.parse({
+        workspace: '/projects/myapp',
+        agents: [{
+          id: 'openclaw-bad',
+          type: 'openclaw',
+          host: '10.0.0.5',
+          transport: 'websocket',
+          port: 7777,
+          sshTunnel: { host: 'bastion', user: 'dan', keyPath: '~/.ssh/id_ed25519' },
+        }],
+      })
+    ).toThrow(ZodError);
+  });
+
+  it('rejects local-only fields that are ambiguous for openclaw config', () => {
+    expect(() =>
+      NexusConfigSchema.parse({
+        workspace: '/projects/myapp',
+        agents: [{ id: 'openclaw-bad', type: 'openclaw', workdir: './', host: '10.0.0.5', transport: 'websocket', port: 7777 }],
       })
     ).toThrow(ZodError);
   });

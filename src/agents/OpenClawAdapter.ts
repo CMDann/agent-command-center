@@ -58,19 +58,19 @@ function requireBridgeAuth(agentId: string): { tokens: Record<string, string>; t
 // ---------------------------------------------------------------------------
 
 /**
- * Agent adapter for remote OpenClaw agents connected via the NEXUS bridge.
+ * Agent adapter for OpenClaw bridge connections.
  *
  * ### Mode selection
- * The mode is determined by whether `config.host` is set:
+ * Mode is intentionally explicit at the config layer:
  *
- * - **Server mode** (`host` absent): The NEXUS server starts a
- *   {@link BridgeServer} that listens for incoming OpenClaw connections.
- *   `connect()` resolves once the server is listening; the adapter waits for
- *   the remote agent to authenticate before transitioning to `idle`.
+ * - **Server mode**: no `host`, no `transport`, no `sshTunnel`.
+ *   The adapter starts a local {@link BridgeServer} and waits for a remote
+ *   OpenClaw client to authenticate.
  *
- * - **Client mode** (`host` present): NEXUS itself acts as a bridge client
- *   (useful for testing or when OpenClaw is acting as the server).
- *   If `config.sshTunnel` is present, an SSH tunnel is established first.
+ * - **Client mode**: requires `host` + `transport` and any transport-specific
+ *   fields validated by the config schema.
+ *   - `transport: "websocket"` → requires `port`
+ *   - `transport: "ssh"` → requires `sshTunnel`
  *
  * ### Events forwarded
  * Status changes, log lines, and task-complete signals from the remote agent
@@ -192,7 +192,7 @@ export class OpenClawAdapter extends AgentAdapter {
   // ---------------------------------------------------------------------------
 
   private isClientMode(): boolean {
-    return !!this.session.host;
+    return this.session.host !== undefined && this.session.transport !== undefined;
   }
 
   private connectServerMode(tokens: Record<string, string>): void {
