@@ -92,6 +92,31 @@ export type TaskStatus = 'backlog' | 'assigned' | 'in_progress' | 'review' | 'do
 /** Whether a task assignee is an AI agent or a human contributor. */
 export type AssigneeType = 'agent' | 'human';
 
+/**
+ * The result of a completed task, reported by the agent via TASK_COMPLETE.
+ */
+export interface TaskResult {
+  /** Whether the task finished successfully. */
+  success: boolean;
+  /** GitHub PR URL opened by the agent, if any. */
+  prUrl?: string;
+  /** GitHub PR number opened by the agent, if any. */
+  prNumber?: number;
+  /** Human-readable error description when `success` is false. */
+  error?: string;
+}
+
+/**
+ * Identifies the entity (agent or human contributor) a task is assigned to.
+ * Returned by {@link TaskEngine.autoAssign}.
+ */
+export interface Assignee {
+  /** Agent ID or contributor login. */
+  id: string;
+  /** Whether this is an AI agent or a human. */
+  type: AssigneeType;
+}
+
 /** A task tracked by NEXUS, backed by a GitHub Issue. */
 export interface Task {
   id: string;
