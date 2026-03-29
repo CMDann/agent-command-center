@@ -1,6 +1,8 @@
 import React, { useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { resolve } from 'path';
 import { useTaskStore } from '../hooks/useTaskStore.js';
+import { useGitStore } from '../hooks/useGitStore.js';
 import type { Task, TaskStatus } from '../../types.js';
 
 // ---------------------------------------------------------------------------
@@ -15,6 +17,7 @@ function statusColor(status: TaskStatus): string {
     case 'in_progress': return 'cyan';
     case 'review':      return 'magenta';
     case 'done':        return 'green';
+    case 'error':       return 'red';
   }
 }
 
@@ -26,6 +29,7 @@ function statusBadge(status: TaskStatus): string {
     case 'in_progress': return 'in_prog';
     case 'review':      return 'review';
     case 'done':        return 'done';
+    case 'error':       return 'error';
   }
 }
 
@@ -81,7 +85,9 @@ interface TasksPanelProps {
  * Task queue panel.
  *
  * Renders the sorted task queue from {@link useTaskStore} with status
- * colour-coding and assignee display.
+ * colour-coding and assignee display. When a sub-repo context is active
+ * (set via the Git panel `s` key), only tasks whose `repoPath` matches
+ * the active sub-repo are shown.
  *
  * Keybindings:
  * - `↑` / `↓` — navigate tasks
@@ -89,41 +95,50 @@ interface TasksPanelProps {
  */
 export const TasksPanel: React.FC<TasksPanelProps> = ({ onAssign }) => {
   const { tasks, selectedTaskId, selectTask } = useTaskStore();
+  const { activeSubRepo } = useGitStore();
 
-  const selectedIndex = tasks.findIndex((t) => t.id === selectedTaskId);
+  // Filter tasks to the active sub-repo when one is selected.
+  const visibleTasks = activeSubRepo !== null
+    ? tasks.filter((t) => t.repoPath === resolve(process.cwd(), activeSubRepo.path))
+    : tasks;
+
+  const selectedIndex = visibleTasks.findIndex((t) => t.id === selectedTaskId);
 
   const moveSelection = useCallback(
     (delta: number): void => {
-      if (tasks.length === 0) return;
-      const next = Math.max(0, Math.min(tasks.length - 1, selectedIndex + delta));
-      selectTask(tasks[next]?.id ?? null);
+      if (visibleTasks.length === 0) return;
+      const next = Math.max(0, Math.min(visibleTasks.length - 1, selectedIndex + delta));
+      selectTask(visibleTasks[next]?.id ?? null);
     },
-    [tasks, selectedIndex, selectTask]
+    [visibleTasks, selectedIndex, selectTask]
   );
 
   useInput((input, key) => {
     if (key.upArrow) { moveSelection(-1); return; }
     if (key.downArrow) { moveSelection(1); return; }
     if (input === 'a' && selectedTaskId !== null) {
-      const task = tasks.find((t) => t.id === selectedTaskId);
+      const task = visibleTasks.find((t) => t.id === selectedTaskId);
       if (task) onAssign(task.id, task.title);
     }
   });
 
   return (
     <Box borderStyle="single" flexDirection="column" width="50%" padding={1}>
-      {/* Panel title */}
+      {/* Panel title + count + active context indicator */}
       <Box flexDirection="row">
         <Text color="cyan" bold>
           TASKS
         </Text>
-        {tasks.length > 0 && (
-          <Text color="#555555"> ({tasks.length})</Text>
+        {visibleTasks.length > 0 && (
+          <Text color="#555555"> ({visibleTasks.length})</Text>
+        )}
+        {activeSubRepo !== null && (
+          <Text color="#555555"> — {activeSubRepo.path}</Text>
         )}
       </Box>
 
       {/* Empty state */}
-      {tasks.length === 0 && (
+      {visibleTasks.length === 0 && (
         <Box marginTop={1}>
           <Text color="#555555">No tasks. Press </Text>
           <Text color="cyan">[i]</Text>
@@ -132,7 +147,7 @@ export const TasksPanel: React.FC<TasksPanelProps> = ({ onAssign }) => {
       )}
 
       {/* Task list */}
-      {tasks.map((task) => (
+      {visibleTasks.map((task) => (
         <TaskRow
           key={task.id}
           task={task}
@@ -141,7 +156,7 @@ export const TasksPanel: React.FC<TasksPanelProps> = ({ onAssign }) => {
       ))}
 
       {/* Status bar */}
-      {tasks.length > 0 && (
+      {visibleTasks.length > 0 && (
         <Box marginTop={1}>
           <Text color="#555555">[↑↓] select  [a] assign  [i] new issue</Text>
         </Box>

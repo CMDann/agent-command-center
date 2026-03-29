@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Task, AgentSession, TaskResult } from '../types.js';
 
 // ---------------------------------------------------------------------------
+// Mock logger before any module that imports it (pino's file transport
+// requires .nexus/ to exist; mocking prevents the missing-fd crash in CI).
+// ---------------------------------------------------------------------------
+
+vi.mock('../utils/logger.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+}));
+
+// ---------------------------------------------------------------------------
 // Mock fs so tests don't touch the real filesystem
 // ---------------------------------------------------------------------------
 

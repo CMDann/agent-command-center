@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { resolve } from 'path';
 import { Box, Text, useInput } from 'ink';
 import { useTaskStore } from '../hooks/useTaskStore.js';
+import { useGitStore } from '../hooks/useGitStore.js';
 import { logger } from '../../utils/logger.js';
 import { GitHubWriteService } from '../../github/GitHubWriteService.js';
 
@@ -22,7 +24,7 @@ const githubService = buildWriteService();
 // Step machine
 // ---------------------------------------------------------------------------
 
-type Step = 'enter_title' | 'enter_body' | 'enter_labels' | 'submitting';
+type Step = 'select_repo' | 'enter_title' | 'enter_body' | 'enter_labels' | 'submitting';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -38,6 +40,8 @@ interface NewIssueModalProps {
  * it as a backlog task.
  *
  * ### Interaction flow
+ * 0. If sub-repos are detected, user selects target sub-repo (`↑`/`↓` + `Enter`).
+ *    This step is skipped when no sub-repos exist.
  * 1. User types the issue **title** → `Enter` to advance.
  * 2. User types the **body** (optional, single line) → `Enter` to advance.
  * 3. User types comma-separated **labels** → `Enter` to submit.
@@ -48,7 +52,16 @@ interface NewIssueModalProps {
  * (no API call is made).
  */
 export const NewIssueModal: React.FC<NewIssueModalProps> = ({ onClose }) => {
-  const [step, setStep] = useState<Step>('enter_title');
+  const { subRepos, activeSubRepo } = useGitStore();
+  const hasSubRepos = subRepos.length > 0;
+
+  // Pre-select the active sub-repo index, falling back to 0.
+  const initialRepoIndex = activeSubRepo !== null
+    ? Math.max(0, subRepos.findIndex((r) => r.path === activeSubRepo.path))
+    : 0;
+
+  const [step, setStep] = useState<Step>(hasSubRepos ? 'select_repo' : 'enter_title');
+  const [repoIndex, setRepoIndex] = useState(initialRepoIndex);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [labels, setLabels] = useState('');
@@ -56,11 +69,27 @@ export const NewIssueModal: React.FC<NewIssueModalProps> = ({ onClose }) => {
 
   const { enqueue } = useTaskStore();
 
+  /** Absolute path of the repo selected by the user (or workspace root). */
+  const selectedRepoPath = hasSubRepos && subRepos[repoIndex] !== undefined
+    ? resolve(process.cwd(), subRepos[repoIndex]!.path)
+    : process.cwd();
+
   useInput((input, key) => {
     if (step === 'submitting') return;
 
     if (key.escape) {
       onClose();
+      return;
+    }
+
+    if (step === 'select_repo') {
+      if (key.upArrow) {
+        setRepoIndex((i) => Math.max(0, i - 1));
+      } else if (key.downArrow) {
+        setRepoIndex((i) => Math.min(subRepos.length - 1, i + 1));
+      } else if (key.return) {
+        setStep('enter_title');
+      }
       return;
     }
 
@@ -130,7 +159,7 @@ export const NewIssueModal: React.FC<NewIssueModalProps> = ({ onClose }) => {
           body: issue.body,
           labels: issue.labels,
           status: 'backlog',
-          repoPath: process.cwd(),
+          repoPath: selectedRepoPath,
           createdAt: issue.createdAt,
           updatedAt: issue.updatedAt,
         });
@@ -145,7 +174,7 @@ export const NewIssueModal: React.FC<NewIssueModalProps> = ({ onClose }) => {
           body: finalBody,
           labels: parsedLabels,
           status: 'backlog',
-          repoPath: process.cwd(),
+          repoPath: selectedRepoPath,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
@@ -179,13 +208,38 @@ export const NewIssueModal: React.FC<NewIssueModalProps> = ({ onClose }) => {
         </Box>
       )}
 
-      <Box marginTop={1} flexDirection="column">
-        {/* Title input */}
-        <Box flexDirection="row">
-          <Text color={step === 'enter_title' ? 'white' : '#555555'}>Title:  </Text>
-          <Text color="white">{title}</Text>
-          {step === 'enter_title' && <Text color="cyan">▌</Text>}
+      {/* Sub-repo selector (shown only if sub-repos exist) */}
+      {hasSubRepos && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={step === 'select_repo' ? 'white' : '#555555'}>
+            Repo:   {subRepos[repoIndex]?.path ?? process.cwd()}
+          </Text>
+          {step === 'select_repo' && (
+            <Box marginLeft={2} flexDirection="column">
+              {subRepos.map((repo, idx) => (
+                <Text
+                  key={repo.path}
+                  color={idx === repoIndex ? 'cyan' : '#555555'}
+                >
+                  {idx === repoIndex ? '▶ ' : '  '}{repo.path}
+                  {repo.branch !== undefined ? ` [${repo.branch}]` : ''}
+                </Text>
+              ))}
+              <Text color="#555555">[↑↓] select  [Enter] confirm</Text>
+            </Box>
+          )}
         </Box>
+      )}
+
+      <Box marginTop={hasSubRepos ? 0 : 1} flexDirection="column">
+        {/* Title input */}
+        {(step !== 'select_repo') && (
+          <Box flexDirection="row">
+            <Text color={step === 'enter_title' ? 'white' : '#555555'}>Title:  </Text>
+            <Text color="white">{title}</Text>
+            {step === 'enter_title' && <Text color="cyan">▌</Text>}
+          </Box>
+        )}
 
         {/* Body input */}
         {(step === 'enter_body' || step === 'enter_labels' || step === 'submitting') && (

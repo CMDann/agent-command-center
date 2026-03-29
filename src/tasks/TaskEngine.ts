@@ -17,10 +17,11 @@ import type {
 /** Status sort order — lower index means higher visual priority. */
 const STATUS_PRIORITY: Record<TaskStatus, number> = {
   in_progress: 0,
-  assigned: 1,
-  backlog: 2,
-  review: 3,
-  done: 4,
+  error: 1,
+  assigned: 2,
+  backlog: 3,
+  review: 4,
+  done: 5,
 };
 
 // ---------------------------------------------------------------------------
@@ -210,6 +211,17 @@ export class TaskEngine {
       prNumber: result.prNumber ?? task.prNumber,
     });
     logger.info({ taskId, newStatus }, 'Task marked complete');
+  }
+
+  /**
+   * Transitions a task to `error`.
+   * Used by the PR wrapper when branch creation or the PR flow fails.
+   *
+   * @param taskId - The task that failed.
+   */
+  markFailed(taskId: string): void {
+    this.transition(taskId, 'error');
+    logger.info({ taskId }, 'Task marked error');
   }
 
   /**

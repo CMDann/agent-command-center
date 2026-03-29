@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { useGitStore } from '../hooks/useGitStore.js';
 import type { SubRepo } from '../../types.js';
 
@@ -18,14 +18,16 @@ const FileRow: React.FC<{ prefix: string; file: string; color: string }> = ({
   </Box>
 );
 
-/** Renders a single sub-repo row with dirty indicator and branch. */
-const SubRepoRow: React.FC<{ repo: SubRepo }> = ({ repo }) => (
+/** Renders a single sub-repo row with dirty indicator, branch, and active highlight. */
+const SubRepoRow: React.FC<{ repo: SubRepo; isActive: boolean }> = ({ repo, isActive }) => (
   <Box>
-    <Text color={repo.isDirty === true ? 'yellow' : 'green'}>
-      {repo.isDirty === true ? '●' : '○'}{' '}
+    <Text color={isActive ? 'cyan' : repo.isDirty === true ? 'yellow' : 'green'}>
+      {isActive ? '▶ ' : repo.isDirty === true ? '● ' : '○ '}
     </Text>
-    <Text>{repo.path}</Text>
-    {repo.branch !== undefined && <Text color="#555555"> [{repo.branch}]</Text>}
+    <Text bold={isActive}>{repo.path}</Text>
+    {repo.branch !== undefined && (
+      <Text color={isActive ? 'cyan' : '#555555'}> [{repo.branch}]</Text>
+    )}
   </Box>
 );
 
@@ -34,10 +36,22 @@ const SubRepoRow: React.FC<{ repo: SubRepo }> = ({ repo }) => (
  * Displays current branch, ahead/behind tracking, modified/staged/untracked
  * files, and any detected sub-repositories.
  *
+ * Keybindings:
+ * - `s` — cycle active sub-repo context (filters Tasks panel and git display)
+ *
  * Data is loaded from {@link useGitStore} on mount and refreshed every 30 s.
  */
 export const GitPanel: React.FC = () => {
-  const { status, aheadBehind, subRepos, isLoading, error, refresh } = useGitStore();
+  const {
+    status,
+    aheadBehind,
+    subRepos,
+    activeSubRepo,
+    cycleSubRepo,
+    isLoading,
+    error,
+    refresh,
+  } = useGitStore();
 
   useEffect(() => {
     void refresh();
@@ -45,6 +59,12 @@ export const GitPanel: React.FC = () => {
     return (): void => clearInterval(interval);
     // refresh is a stable Zustand action reference — empty deps is intentional.
   }, []);
+
+  useInput((input) => {
+    if (input === 's') {
+      cycleSubRepo();
+    }
+  });
 
   return (
     <Box borderStyle="single" flexDirection="column" width="50%" padding={1}>
@@ -117,12 +137,24 @@ export const GitPanel: React.FC = () => {
       {subRepos.length > 0 && (
         <>
           <Text> </Text>
-          <Text color="cyan" bold>
-            SUBREPOS
-          </Text>
+          <Box flexDirection="row">
+            <Text color="cyan" bold>
+              SUBREPOS
+            </Text>
+            {activeSubRepo !== null && (
+              <Text color="#555555"> (context: {activeSubRepo.path})</Text>
+            )}
+          </Box>
           {subRepos.map((repo) => (
-            <SubRepoRow key={repo.path} repo={repo} />
+            <SubRepoRow
+              key={repo.path}
+              repo={repo}
+              isActive={activeSubRepo?.path === repo.path}
+            />
           ))}
+          <Box marginTop={1}>
+            <Text color="#555555">[s] cycle context</Text>
+          </Box>
         </>
       )}
     </Box>
