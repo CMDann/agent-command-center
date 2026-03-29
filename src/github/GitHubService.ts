@@ -7,6 +7,7 @@ import type {
   PRSummary,
   PRStatus,
   PRChecksStatus,
+  Contributor,
 } from '../types.js';
 
 /** Configuration required to construct a {@link GitHubService}. */
@@ -223,6 +224,46 @@ export class GitHubService {
         'GitHubService.getPullRequest failed'
       );
       throw new GitHubServiceError(`Failed to get PR #${prNumber}`, statusCode, err);
+    }
+  }
+
+  /**
+   * Lists repository collaborators and maps them to the {@link Contributor} model.
+   *
+   * @returns Array of {@link Contributor} objects with role derived from permissions.
+   * @throws {GitHubServiceError} If the API call fails.
+   */
+  async getCollaborators(): Promise<Contributor[]> {
+    try {
+      const { data } = await this.octokit.rest.repos.listCollaborators({
+        owner: this.owner,
+        repo: this.repo,
+        per_page: 100,
+      });
+
+      return data.map((c) => {
+        let role: Contributor['role'] = 'contributor';
+        if (c.permissions?.admin) {
+          role = 'owner';
+        } else if (c.permissions?.maintain) {
+          role = 'maintainer';
+        }
+
+        return {
+          login: c.login,
+          name: c.name ?? undefined,
+          email: (c as { email?: string | null }).email ?? undefined,
+          avatarUrl: c.avatar_url,
+          role,
+        };
+      });
+    } catch (err) {
+      const statusCode = getStatusCode(err);
+      logger.error(
+        { owner: this.owner, repo: this.repo, err: safeErrorForLogs(err) },
+        'GitHubService.getCollaborators failed'
+      );
+      throw new GitHubServiceError('Failed to list collaborators', statusCode, err);
     }
   }
 

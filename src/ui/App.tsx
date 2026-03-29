@@ -7,6 +7,7 @@ import { LogPanel } from './panels/LogPanel.js';
 import { ConnectAgentModal } from './modals/ConnectAgentModal.js';
 import { AssignTaskModal } from './modals/AssignTaskModal.js';
 import { NewIssueModal } from './modals/NewIssueModal.js';
+import { ContributorDetailModal } from './modals/ContributorDetailModal.js';
 import { useTaskStore } from './hooks/useTaskStore.js';
 
 // ---------------------------------------------------------------------------
@@ -16,8 +17,9 @@ import { useTaskStore } from './hooks/useTaskStore.js';
 type ActiveModal =
   | { type: 'none' }
   | { type: 'connect' }
-  | { type: 'assign'; taskId: string; taskTitle: string }
-  | { type: 'newIssue' };
+  | { type: 'assign'; taskId: string; taskTitle: string; issueNumber: number }
+  | { type: 'newIssue' }
+  | { type: 'contributorDetail'; login: string };
 
 const NO_MODAL: ActiveModal = { type: 'none' };
 
@@ -87,6 +89,7 @@ export const App: React.FC = () => {
         <AssignTaskModal
           taskId={modal.taskId}
           taskTitle={modal.taskTitle}
+          issueNumber={modal.issueNumber}
           onClose={closeModal}
         />
       )}
@@ -95,14 +98,25 @@ export const App: React.FC = () => {
         <NewIssueModal onClose={closeModal} />
       )}
 
+      {modal.type === 'contributorDetail' && (
+        <ContributorDetailModal
+          login={modal.login}
+          onClose={closeModal}
+        />
+      )}
+
       {modal.type === 'none' && (
         <>
           {/* Main panels row 1: Agents | Tasks */}
           <Box flexDirection="row">
-            <AgentsPanel />
+            <AgentsPanel
+              onContributorDetail={(login) =>
+                setModal({ type: 'contributorDetail', login })
+              }
+            />
             <TasksPanel
-              onAssign={(taskId, taskTitle) =>
-                setModal({ type: 'assign', taskId, taskTitle })
+              onAssign={(taskId, taskTitle, issueNumber) =>
+                setModal({ type: 'assign', taskId, taskTitle, issueNumber })
               }
             />
           </Box>

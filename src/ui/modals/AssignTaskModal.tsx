@@ -2,7 +2,24 @@ import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useAgentStore } from '../hooks/useAgentStore.js';
 import { useTaskStore } from '../hooks/useTaskStore.js';
-import type { AgentSession } from '../../types.js';
+import { useContributorStore } from '../hooks/useContributorStore.js';
+import { GitHubWriteService } from '../../github/GitHubWriteService.js';
+import { logger } from '../../utils/logger.js';
+import type { AgentSession, Contributor } from '../../types.js';
+
+// ---------------------------------------------------------------------------
+// Write service (built from env vars, or null if not configured)
+// ---------------------------------------------------------------------------
+
+function buildWriteService(): GitHubWriteService | null {
+  try {
+    return GitHubWriteService.fromEnv();
+  } catch {
+    return null;
+  }
+}
+
+const githubWriteService = buildWriteService();
 
 // ---------------------------------------------------------------------------
 // Assignee list item
@@ -29,9 +46,12 @@ const MAX_OPTIONS = 9;
 
 /**
  * Builds the ordered list of selectable assignee options from current
- * agent sessions.
+ * agent sessions and contributors.
  */
-function buildOptions(sessions: AgentSession[]): AssigneeOption[] {
+function buildOptions(
+  sessions: AgentSession[],
+  contributors: Contributor[]
+): AssigneeOption[] {
   const options: AssigneeOption[] = [];
   let index = 1;
 
@@ -47,6 +67,17 @@ function buildOptions(sessions: AgentSession[]): AssigneeOption[] {
     });
   }
 
+  for (const contributor of contributors) {
+    if (index > MAX_OPTIONS) break;
+    const taskNote = contributor.currentTaskId ? `busy: ${contributor.currentTaskId}` : 'available';
+    options.push({
+      key: String(index++),
+      label: `${'👤 ' + contributor.login}`.padEnd(18) + ` [${contributor.role}] ${taskNote}`,
+      id: contributor.login,
+      kind: 'human',
+    });
+  }
+
   return options;
 }
 
@@ -59,6 +90,8 @@ interface AssignTaskModalProps {
   taskId: string;
   /** Task title shown in the modal header. */
   taskTitle: string;
+  /** The GitHub issue number (for API calls). */
+  issueNumber: number;
   /** Called when the modal closes (cancel or after successful assignment). */
   onClose: () => void;
 }
@@ -70,26 +103,53 @@ interface AssignTaskModalProps {
  * 1. A numbered list of all available agents + contributors is shown.
  * 2. User presses the number key corresponding to their choice.
  * 3. Assignment is applied and the modal closes.
+ *    - For human contributors: also calls GitHub API to add assignee and
+ *      posts a comment on the issue.
  * 4. `Escape` cancels without making a change.
  */
 export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
   taskId,
   taskTitle,
+  issueNumber,
   onClose,
 }) => {
   const { sessions } = useAgentStore();
   const { assign } = useTaskStore();
+  const { contributors } = useContributorStore();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const options = buildOptions(sessions);
+  const options = buildOptions(sessions, contributors);
 
   const handleAssign = useCallback(
     (option: AssigneeOption): void => {
       setSelectedKey(option.key);
       assign(taskId, option.id, option.kind === 'agent' ? 'agent' : 'human');
+
+      if (option.kind === 'human' && githubWriteService && issueNumber > 0) {
+        void (async () => {
+          try {
+            await githubWriteService.addAssignee(issueNumber, option.id);
+            await githubWriteService.addComment(
+              issueNumber,
+              `👤 Assigned to @${option.id} via NEXUS`
+            );
+            logger.info(
+              { issueNumber, login: option.id },
+              'Human contributor assigned via GitHub API'
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logger.error({ issueNumber, login: option.id, err }, 'GitHub assign failed');
+            setError(message);
+            return;
+          }
+        })();
+      }
+
       onClose();
     },
-    [assign, taskId, onClose]
+    [assign, taskId, issueNumber, onClose]
   );
 
   useInput((input, key) => {
@@ -142,6 +202,13 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
               </Text>
             </Box>
           ))}
+        </Box>
+      )}
+
+      {/* Error */}
+      {error !== null && (
+        <Box marginTop={1}>
+          <Text color="red">{error}</Text>
         </Box>
       )}
     </Box>
