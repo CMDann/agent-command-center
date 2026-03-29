@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+const SshTunnelConfigSchema = z.object({
+  host: z.string().min(1, 'SSH tunnel host is required'),
+  port: z.number().int().min(1).max(65535).optional(),
+  user: z.string().min(1, 'SSH tunnel user is required'),
+  keyPath: z.string().min(1, 'SSH tunnel keyPath is required'),
+});
+
 /**
  * Schema for a repo entry in the workspace.
  *
@@ -52,32 +59,77 @@ const AgentConfigSchema = z
     host: z.string().optional(),
     port: z.number().int().min(1).max(65535).optional(),
     transport: z.enum(['ssh', 'websocket']).optional(),
+    sshTunnel: SshTunnelConfigSchema.optional(),
 
     autopr: z.boolean().default(true),
   })
   .superRefine((agent, ctx) => {
-    const isRemote = agent.type === 'openclaw';
+    const isOpenClaw = agent.type === 'openclaw';
 
-    if (isRemote) {
-      if (!agent.transport) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['transport'],
-          message: 'Remote openclaw agents require transport (ssh or websocket).',
-        });
+    if (isOpenClaw) {
+      const hasHost = !!agent.host;
+      const hasPort = agent.port !== undefined;
+      const hasTransport = agent.transport !== undefined;
+      const hasSshTunnel = agent.sshTunnel !== undefined;
+
+      if (!hasHost && !hasPort && !hasTransport && !hasSshTunnel) {
+        // Server mode: allow a local bridge listener with optional explicit port.
+        return;
       }
-      if (!agent.host) {
+
+      if (!hasHost) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['host'],
-          message: 'Remote openclaw agents require a host.',
+          message: 'OpenClaw client mode requires host.',
         });
       }
-      if (agent.transport === 'websocket' && !agent.port) {
+
+      if (!hasTransport) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['transport'],
+          message: 'OpenClaw client mode requires transport (ssh or websocket).',
+        });
+      }
+
+      if (agent.transport === 'websocket' && !hasPort) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['port'],
-          message: 'Websocket transport requires a port (e.g. 7777).',
+          message: 'OpenClaw websocket client mode requires port (for example 7777).',
+        });
+      }
+
+      if (agent.transport === 'ssh' && hasPort) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['port'],
+          message: 'OpenClaw ssh transport should not set port directly; use sshTunnel for tunnel settings or websocket transport for direct socket connections.',
+        });
+      }
+
+      if (agent.transport === 'ssh' && !hasSshTunnel) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sshTunnel'],
+          message: 'OpenClaw ssh transport requires sshTunnel configuration.',
+        });
+      }
+
+      if (agent.transport === 'websocket' && hasSshTunnel) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sshTunnel'],
+          message: 'OpenClaw websocket transport should not include sshTunnel configuration.',
+        });
+      }
+
+      if (agent.workdir) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['workdir'],
+          message: 'OpenClaw agents do not use local workdir in config.',
         });
       }
     } else {
@@ -88,12 +140,12 @@ const AgentConfigSchema = z
           message: 'Local agents require a workdir.',
         });
       }
-      if (agent.host || agent.transport || agent.port) {
+      if (agent.host || agent.transport || agent.port || agent.sshTunnel) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [],
           message:
-            'Local agents should not set host/port/transport. Use type="openclaw" for remote agents.',
+            'Local agents should not set host/port/transport/sshTunnel. Use type="openclaw" for bridge-based agents.',
         });
       }
     }
