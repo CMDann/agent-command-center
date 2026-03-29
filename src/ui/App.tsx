@@ -7,6 +7,7 @@ import { LogPanel } from './panels/LogPanel.js';
 import { ConnectAgentModal } from './modals/ConnectAgentModal.js';
 import { AssignTaskModal } from './modals/AssignTaskModal.js';
 import { NewIssueModal } from './modals/NewIssueModal.js';
+import { useTaskStore } from './hooks/useTaskStore.js';
 
 // ---------------------------------------------------------------------------
 // Modal state discriminant
@@ -31,6 +32,7 @@ const NO_MODAL: ActiveModal = { type: 'none' };
  * - `c` — open the Connect Agent modal
  * - `i` — open the New Issue modal
  * - `a` — open the Assign Task modal (delegated from TasksPanel)
+ * - `Enter` — dispatch the selected assigned task to its agent
  * - `q` — quit the application
  *
  * When any modal is open the main panels are hidden and the modal fills
@@ -39,6 +41,7 @@ const NO_MODAL: ActiveModal = { type: 'none' };
 export const App: React.FC = () => {
   const { exit } = useApp();
   const [modal, setModal] = useState<ActiveModal>(NO_MODAL);
+  const { selectedTaskId, dispatchToAgent } = useTaskStore();
 
   const closeModal = (): void => setModal(NO_MODAL);
 
@@ -52,6 +55,8 @@ export const App: React.FC = () => {
       setModal({ type: 'connect' });
     } else if (input === 'i') {
       setModal({ type: 'newIssue' });
+    } else if (input === 'Enter' && selectedTaskId !== null) {
+      void dispatchToAgent(selectedTaskId);
     }
     // 'a' is handled by TasksPanel and triggers onAssign callback.
   });
@@ -60,7 +65,7 @@ export const App: React.FC = () => {
   const hint =
     modal.type !== 'none'
       ? '[Esc] Cancel'
-      : '[c] Connect  [i] New Issue  [q] Quit';
+      : '[c] Connect  [i] New Issue  [Enter] Dispatch  [q] Quit';
 
   return (
     <Box flexDirection="column">

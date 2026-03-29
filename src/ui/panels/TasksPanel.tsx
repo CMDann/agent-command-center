@@ -92,6 +92,7 @@ interface TasksPanelProps {
  * Keybindings:
  * - `↑` / `↓` — navigate tasks
  * - `a`        — open assign modal for the selected task
+ * - `Enter`    — dispatch the selected assigned task via the global App shortcut
  */
 export const TasksPanel: React.FC<TasksPanelProps> = ({ onAssign }) => {
   const { tasks, selectedTaskId, selectTask } = useTaskStore();
@@ -158,7 +159,7 @@ export const TasksPanel: React.FC<TasksPanelProps> = ({ onAssign }) => {
       {/* Status bar */}
       {visibleTasks.length > 0 && (
         <Box marginTop={1}>
-          <Text color="#555555">[↑↓] select  [a] assign  [i] new issue</Text>
+          <Text color="#555555">[↑↓] select  [a] assign  [Enter] dispatch  [i] new issue</Text>
         </Box>
       )}
     </Box>
