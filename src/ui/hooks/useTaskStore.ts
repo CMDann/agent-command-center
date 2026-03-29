@@ -170,11 +170,13 @@ export const useTaskStore = create<TaskStoreState>((set) => ({
       return;
     }
     try {
-      await agentManager.dispatch(task.assigneeId, task);
       taskEngine.markInProgress(taskId);
       set({ tasks: taskEngine.getQueue() });
+      await agentManager.dispatch(task.assigneeId, task);
       logger.info({ taskId, agentId: task.assigneeId }, 'Task dispatched to agent');
     } catch (err) {
+      taskEngine.markFailed(taskId);
+      set({ tasks: taskEngine.getQueue() });
       logger.error({ taskId, err }, 'dispatchToAgent failed');
     }
   },
