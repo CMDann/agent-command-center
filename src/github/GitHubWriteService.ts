@@ -126,6 +126,60 @@ export class GitHubWriteService {
   }
 
   /**
+   * Adds a GitHub login as an assignee on an issue.
+   *
+   * @param issueNumber - The issue number to update.
+   * @param login       - GitHub login of the assignee to add.
+   * @throws {GitHubServiceError} If the API call fails.
+   */
+  async addAssignee(issueNumber: number, login: string): Promise<void> {
+    try {
+      await this.octokit.rest.issues.addAssignees({
+        owner: this.owner,
+        repo: this.repo,
+        issue_number: issueNumber,
+        assignees: [login],
+      });
+      logger.info({ issueNumber, login }, 'Assignee added to issue');
+    } catch (err) {
+      const statusCode = (err as { status?: number }).status;
+      logger.error({ issueNumber, login, err }, 'addAssignee failed');
+      throw new GitHubServiceError(
+        `Failed to add assignee @${login} to issue #${issueNumber}`,
+        statusCode,
+        err
+      );
+    }
+  }
+
+  /**
+   * Removes a GitHub login from the assignees of an issue.
+   *
+   * @param issueNumber - The issue number to update.
+   * @param login       - GitHub login of the assignee to remove.
+   * @throws {GitHubServiceError} If the API call fails.
+   */
+  async removeAssignee(issueNumber: number, login: string): Promise<void> {
+    try {
+      await this.octokit.rest.issues.removeAssignees({
+        owner: this.owner,
+        repo: this.repo,
+        issue_number: issueNumber,
+        assignees: [login],
+      });
+      logger.info({ issueNumber, login }, 'Assignee removed from issue');
+    } catch (err) {
+      const statusCode = (err as { status?: number }).status;
+      logger.error({ issueNumber, login, err }, 'removeAssignee failed');
+      throw new GitHubServiceError(
+        `Failed to remove assignee @${login} from issue #${issueNumber}`,
+        statusCode,
+        err
+      );
+    }
+  }
+
+  /**
    * Posts a comment on an issue or pull request.
    *
    * @param issueNumber - The issue (or PR) number to comment on.

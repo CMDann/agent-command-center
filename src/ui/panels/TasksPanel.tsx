@@ -78,7 +78,7 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, isSelected }) => {
 
 interface TasksPanelProps {
   /** Called when the user presses `a` on a selected task. */
-  onAssign: (taskId: string, taskTitle: string) => void;
+  onAssign: (taskId: string, taskTitle: string, issueNumber: number) => void;
 }
 
 /**
@@ -119,7 +119,7 @@ export const TasksPanel: React.FC<TasksPanelProps> = ({ onAssign }) => {
     if (key.downArrow) { moveSelection(1); return; }
     if (input === 'a' && selectedTaskId !== null) {
       const task = visibleTasks.find((t) => t.id === selectedTaskId);
-      if (task) onAssign(task.id, task.title);
+      if (task) onAssign(task.id, task.title, task.issueNumber);
     }
   });
 
