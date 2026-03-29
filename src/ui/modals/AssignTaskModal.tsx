@@ -127,7 +127,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
       assign(taskId, option.id, option.kind === 'agent' ? 'agent' : 'human');
 
       if (option.kind === 'human' && githubWriteService && issueNumber > 0) {
-        void (async () => {
+        void (async (): Promise<void> => {
           try {
             await githubWriteService.addAssignee(issueNumber, option.id);
             await githubWriteService.addComment(

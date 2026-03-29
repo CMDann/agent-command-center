@@ -88,7 +88,6 @@ export const ContributorDetailModal: React.FC<ContributorDetailModalProps> = ({
   // Load on mount.
   useEffect(() => {
     loadIssues();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [login]);
 
   useInput((input, key) => {
