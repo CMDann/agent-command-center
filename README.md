@@ -18,7 +18,7 @@
 
 - 🤖 **Multi-Agent Support** — Connect Claude Code, OpenCodex, and remote OpenClaw agents
 - 🌐 **Remote Agent Connections** — SSH/WebSocket bridge for agents running on separate machines
-- 📋 **GitHub Integration** — Issue creation, PR tracking, TODO management via `gh` CLI
+- 📋 **GitHub Integration** — Read-only dashboard sync via `GitHubService`, explicit issue/PR/comment mutations via `GitHubWriteService`
 - 🔀 **Git Tracking** — Local diff, branch, commit, and status monitoring
 - 👥 **Human Contributor Management** — View, assign, and track human contributors alongside agents
 - 📁 **Sub-repository Support** — Manage monorepos and multi-repo workspaces
@@ -112,7 +112,7 @@ NEXUS is configured via `nexus.config.json` in your project root:
 }
 ```
 
-GitHub repository coordinates and authentication are currently provided via environment variables (see `.env.example`).
+GitHub repository coordinates and authentication are currently provided via environment variables (see `.env.example`). Read operations are intentionally separated from write operations; see [`docs/github-mutations.md`](./docs/github-mutations.md).
 
 ---
 
