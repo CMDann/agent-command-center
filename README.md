@@ -1,5 +1,5 @@
 # NEXUS
-### Multi-Agent Terminal Orchestration Platform
+### Multi-Agent Terminal Orchestration Platform — v1.0.0
 
 ```
 ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗
@@ -10,20 +10,55 @@
 ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
 ```
 
-**NEXUS** is a terminal-based multi-agent orchestration dashboard that unifies AI coding agents (Claude Code, OpenCodex, OpenClaw), GitHub project management, Git tracking, and human contributor coordination into a single TUI (Terminal User Interface).
+**NEXUS** is a terminal-based multi-agent orchestration dashboard. It unifies AI coding
+agents (Claude Code, OpenCodex, OpenClaw), GitHub issue management, Git tracking, and
+human contributor coordination into a single keyboard-driven TUI.
+
+---
+
+## Screenshot
+
+```
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ NEXUS v1.0.0 — multi-agent orchestration dashboard   [?] Help  [q] Quit       │
+├──────────────────────────────────┬─────────────────────────────────────────────┤
+│ AGENTS & CONTRIBUTORS            │ TASKS (3)                                   │
+│  agents                          │                                             │
+│▶ ● claude-local     [idle]       │▶ #  7 Fix login timeout    [in_prog] claude │
+│  ● codex-local      [working]    │  #  3 Add dark mode        [assigned] bob   │
+│    issue-12                      │  #  1 Update README        [backlog]        │
+│  contributors                    │                                             │
+│  👤 alice           [owner]      │ [↑↓] select  [a] assign  [Enter] dispatch  │
+│  👤 bob             [contributor]│ [i] new issue                               │
+│    issue-3                       │                                             │
+│ [↑↓] navigate  [d] disconnect    │                                             │
+│ [Enter] detail  [c] connect      │                                             │
+├──────────────────────────────────┼─────────────────────────────────────────────┤
+│ GIT STATUS                       │ AGENT LOG [codex-local]                     │
+│ branch: main                     │ [codex-local] Connected                     │
+│ modified: 2  staged: 1           │ [codex-local] Created branch:               │
+│                                  │   nexus/task-12-fix-login-timeout           │
+│ sub-repos                        │ [codex-local] Pushed branch                 │
+│  ▶ packages/api  [main] dirty    │ [codex-local] Opened PR #34:                │
+│    packages/web  [main]          │   https://github.com/org/repo/pull/34       │
+│                                  │ [codex-local] Task complete                 │
+│ [r] refresh  [s] set context     │                                             │
+└──────────────────────────────────┴─────────────────────────────────────────────┘
+```
 
 ---
 
 ## Features
 
-- 🤖 **Multi-Agent Support** — Connect Claude Code, OpenCodex, and remote OpenClaw agents
-- 🌐 **Remote Agent Connections** — SSH/WebSocket bridge for agents running on separate machines
-- 📋 **GitHub Integration** — Read-only dashboard sync via `GitHubService`, explicit issue/PR/comment mutations via `GitHubWriteService`
-- 🔀 **Git Tracking** — Local diff, branch, commit, and status monitoring
-- 👥 **Human Contributor Management** — View, assign, and track human contributors alongside agents
-- 📁 **Sub-repository Support** — Manage monorepos and multi-repo workspaces
-- 🎯 **Intelligent Task Assignment** — Route tasks to the right agent or person based on context
-- 🔄 **PR Enforcement** — All agent commits are automatically wrapped in pull requests
+- **Multi-agent support** — Connect Claude Code, OpenCodex, and remote OpenClaw agents simultaneously
+- **Remote bridge** — SSH/WebSocket bridge with HMAC-SHA256 challenge-response auth and exponential-backoff reconnect
+- **GitHub integration** — Sync issues as tasks; create issues, PRs, and comments via write service
+- **PR enforcement** — Every agent task automatically results in a feature branch + pull request
+- **Human contributors** — Track GitHub collaborators alongside agents; assign tasks to people with one keypress
+- **Sub-repo support** — Manage monorepos and multi-repo workspaces; filter tasks by sub-repo context
+- **Intelligent assignment** — Label-based and workdir-based auto-assignment rules
+- **Error-resilient TUI** — Each panel is independently error-bounded; a crash reloads only that panel
+- **Secret-safe logging** — Two-layer redaction: field-path + regex patterns for tokens, JWTs, Bearer headers
 
 ---
 
@@ -32,116 +67,75 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Node.js | ≥ 20.x | Runtime |
-| `gh` CLI | ≥ 2.x | GitHub integration |
 | `git` | ≥ 2.x | Version control |
-| `claude` CLI | latest | Claude Code sessions |
-| `codex` CLI | latest | OpenCodex sessions |
-| SSH access | — | Remote OpenClaw agents |
+| `claude` CLI | latest | Claude Code agent sessions |
+| `codex` CLI | latest | OpenCodex agent sessions |
+| SSH / network access | — | Remote OpenClaw agents |
+
+GitHub integration requires a personal access token with `repo` scope set as `GITHUB_TOKEN`.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Clone the repo
-git clone https://github.com/your-org/nexus.git
-cd nexus
-
-# Install dependencies
+# 1. Clone and install
+git clone https://github.com/CMDann/agent-command-center.git
+cd agent-command-center
 npm install
 
-# Configure your environment
+# 2. Configure environment
 cp .env.example .env
-# Edit .env with your GitHub repo coordinates and tokens (never commit .env)
-# Required for the Tasks panel: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO
-# Optional for remote agents/bridge auth: NEXUS_BRIDGE_SECRET
-# Optional explicit config path: NEXUS_CONFIG_PATH
+# Fill in: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO
+# Optional: NEXUS_BRIDGE_SECRET or NEXUS_BRIDGE_TOKENS for remote agents
 
-# Launch NEXUS
+# 3. Create nexus.config.json (see Configuration below)
+
+# 4. Run in development
 npm start
+
+# 5. Or build and run the bundled CLI
+npm run build
+node dist/nexus.js
+# Or after npm install -g: nexus
 ```
 
-### Developer checks
+### Developer commands
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npm run smoke
+npm run lint        # ESLint (zero warnings)
+npm run typecheck   # tsc --noEmit (strict type check)
+npm test            # Vitest unit tests
+npm run coverage    # Test coverage report
+npm run build       # tsc type-check + esbuild single-file bundle → dist/nexus.js
+npm run smoke       # Startup smoke test (exits immediately after init)
 ```
-
-### Remote bridge auth (WebSocket)
-
-Remote OpenClaw connections use a challenge-response auth handshake (HMAC-SHA256). The shared secret is **never sent over the wire**, and each connection includes a server challenge + client nonce for basic replay resistance.
-
-Configure one of:
-
-- `NEXUS_BRIDGE_TOKENS` (preferred): comma-separated `tokenId=secret` pairs
-  - Example: `NEXUS_BRIDGE_TOKENS=openclaw-1=supersecret,ci=anothersecret`
-- `NEXUS_BRIDGE_SECRET` (legacy fallback): single shared secret exposed as tokenId `default`
-
-For the current MVP implementation, if a token exists for `agentId` it will be used; otherwise it falls back to `default`.
-
-## Configuration
-
-NEXUS is configured via `nexus.config.json` in your project root:
-
-```json
-{
-  "workspace": "/path/to/your/project",
-  "repos": [
-    { "name": "frontend", "path": "./packages/frontend" },
-    { "name": "api", "path": "./packages/api" }
-  ],
-  "agents": [
-    {
-      "id": "claude-local",
-      "type": "claude",
-      "workdir": "./",
-      "autopr": true
-    },
-    {
-      "id": "openclaw-remote",
-      "type": "openclaw",
-      "host": "192.168.1.100",
-      "port": 7777,
-      "transport": "websocket"
-    }
-  ]
-}
-```
-
-GitHub repository coordinates and authentication are currently provided via environment variables (see `.env.example`). Read operations are intentionally separated from write operations; see [`docs/github-mutations.md`](./docs/github-mutations.md).
 
 ---
 
 ## Configuration
 
-NEXUS is configured via `nexus.config.json` in your project root.
-
-Optionally set `NEXUS_CONFIG_PATH` to load a specific config file (supports `~` and relative paths).
-
+Create `nexus.config.json` in your project root:
 
 ```json
 {
   "workspace": "/path/to/your/project",
   "github": {
     "owner": "your-org",
-    "repo": "your-repo"
+    "repo":  "your-repo"
   },
   "agents": [
     {
-      "id": "claude-local",
-      "type": "claude",
+      "id":      "claude-local",
+      "type":    "claude",
       "workdir": "./",
-      "autopr": true
+      "autopr":  true
     },
     {
-      "id": "openclaw-remote",
-      "type": "openclaw",
-      "host": "192.168.1.100",
-      "port": 7777,
+      "id":        "openclaw-remote",
+      "type":      "openclaw",
+      "host":      "192.168.1.100",
+      "port":      7777,
       "transport": "websocket"
     }
   ],
@@ -152,77 +146,82 @@ Optionally set `NEXUS_CONFIG_PATH` to load a specific config file (supports `~` 
 }
 ```
 
+**Environment variables** (keep secrets out of `nexus.config.json`):
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_TOKEN` | Yes (for mutations) | PAT with `repo` scope |
+| `GITHUB_OWNER` | Yes | Repository owner login |
+| `GITHUB_REPO` | Yes | Repository name |
+| `NEXUS_BRIDGE_SECRET` | For remote agents | Shared secret (single-token legacy) |
+| `NEXUS_BRIDGE_TOKENS` | For remote agents | `id=secret,id2=secret2` pairs |
+| `NEXUS_CONFIG_PATH` | No | Override config file location |
+| `LOG_LEVEL` | No | Pino log level (default: `debug`) |
+
 ---
 
-## Remote Bridge Authentication (WebSocket)
+## Keyboard Shortcuts
 
-Remote agents connecting over WebSocket must authenticate **before** any task messages are accepted.
+| Key | Context | Action |
+|-----|---------|--------|
+| `?` | Global | Toggle help overlay |
+| `c` | Global | Connect a new agent |
+| `i` | Global | Create a new GitHub issue |
+| `q` | Global | Quit NEXUS |
+| `↑` / `↓` | Tasks / Agents panels | Navigate list |
+| `a` | Tasks panel | Assign selected task |
+| `Enter` | Tasks panel | Dispatch task to assigned agent |
+| `d` | Agents panel | Disconnect selected agent |
+| `Enter` | Agents panel (contributor) | Open contributor detail |
+| `r` | Git panel | Refresh git status |
+| `s` | Git panel | Set active sub-repo context |
+| `Escape` | Any modal | Close / cancel |
+| `r` | Error panel | Reload crashed panel |
 
-This repo uses a minimal, secure challenge-response handshake:
+---
 
-1. Server → client: `AUTH_CHALLENGE` with a random `challenge` nonce
-2. Client → server: `AUTH` with `{ tokenId, clientNonce, clientTimeMs, signature }`
-3. Server → client: `AUTH_ACK` on success (otherwise closes the socket)
+## Remote Bridge Authentication
 
-The `signature` is an HMAC-SHA256 over:
+Remote OpenClaw agents connect over WebSocket with a challenge-response handshake:
 
-```
-${tokenId}.${challenge}.${clientNonce}.${clientTimeMs}
-```
+1. Server → client: `AUTH_CHALLENGE` with a random nonce
+2. Client → server: `AUTH` with HMAC-SHA256 signature over `tokenId.challenge.clientNonce.clientTimeMs`
+3. Server → client: `AUTH_ACK` on success
 
 The shared secret is **never sent over the wire**.
 
-### Environment variables
-
 Set one of:
-
-- `NEXUS_BRIDGE_TOKENS` (preferred): comma-separated `tokenId=secret` pairs
-  - Example: `NEXUS_BRIDGE_TOKENS=laptop=supersecret,ci=anothersecret`
-- `NEXUS_BRIDGE_SECRET` (legacy fallback): single shared secret
-
-> Do not put these values in `nexus.config.json`. Keep secrets in `.env`.
+- `NEXUS_BRIDGE_TOKENS=laptop=supersecret,ci=anothersecret` (preferred, multi-token)
+- `NEXUS_BRIDGE_SECRET=supersecret` (legacy, single token)
 
 ---
 
 ## Architecture
 
 ```
-nexus/
-├── src/
-│   ├── ui/              # Blessed/Ink TUI components
-│   ├── agents/          # Agent adapters (claude, codex, openclaw)
-│   ├── bridge/          # SSH/WebSocket remote agent bridge
-│   ├── github/          # gh CLI wrapper + Octokit client
-│   ├── git/             # Local git integration (simple-git)
-│   ├── tasks/           # Task queue and assignment engine
-│   ├── contributors/    # Human contributor registry
-│   └── config/          # Config loader and validator
-├── nexus.config.json    # Project configuration
-├── .env.example         # Environment variable template
-└── docs/                # Extended documentation
+src/
+├── agents/        AgentAdapter (base), ClaudeAdapter, CodexAdapter,
+│                  OpenClawAdapter, AgentPRWrapper, AgentManager
+├── bridge/        BridgeServer, BridgeClient, protocol, auth, tokens
+├── config/        ConfigLoader (cosmiconfig + Zod), schema, loadConfig
+├── contributors/  ContributorRegistry (GitHub collaborators + refresh)
+├── git/           GitService (simple-git)
+├── github/        GitHubService (read), GitHubWriteService (write)
+├── tasks/         TaskEngine (queue + assignment rules), TaskSync
+├── types.ts       Shared data models
+├── ui/
+│   ├── App.tsx    Root component, modal state machine, error boundaries
+│   ├── ErrorBoundary.tsx
+│   ├── hooks/     useAgentStore, useTaskStore, useGitStore,
+│   │              useContributorStore, useGitHubStore
+│   ├── modals/    ConnectAgent, AssignTask, NewIssue,
+│   │              ContributorDetail, Help
+│   └── panels/    Agents, Tasks, Git, Log
+└── utils/         logger (pino), sanitize (secret redaction)
 ```
-
----
-
-## Key Concepts
-
-### Agents
-An **Agent** is any autonomous coding entity NEXUS can dispatch tasks to. Agents can be:
-- **Local** — Running on the same machine (Claude Code, OpenCodex)
-- **Remote** — Running on a separate host (OpenClaw via SSH/WebSocket)
-
-### Tasks
-A **Task** is an internal lifecycle model backed by a GitHub Issue. NEXUS maps issue summaries into local task state, tracks assignment/progress/review independently of raw API responses, and stays read-only on the issue sync path.
-
-### Sessions
-A **Session** is an active agent process bound to a working directory. Multiple sessions can run concurrently across different directories or subrepos.
 
 ---
 
 ## License
 
 MIT — See [LICENSE.md](./LICENSE.md)
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md)

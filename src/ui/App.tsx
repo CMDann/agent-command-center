@@ -8,6 +8,8 @@ import { ConnectAgentModal } from './modals/ConnectAgentModal.js';
 import { AssignTaskModal } from './modals/AssignTaskModal.js';
 import { NewIssueModal } from './modals/NewIssueModal.js';
 import { ContributorDetailModal } from './modals/ContributorDetailModal.js';
+import { HelpModal } from './modals/HelpModal.js';
+import { ErrorBoundary } from './ErrorBoundary.js';
 import { useTaskStore } from './hooks/useTaskStore.js';
 
 // ---------------------------------------------------------------------------
@@ -16,6 +18,7 @@ import { useTaskStore } from './hooks/useTaskStore.js';
 
 type ActiveModal =
   | { type: 'none' }
+  | { type: 'help' }
   | { type: 'connect' }
   | { type: 'assign'; taskId: string; taskTitle: string; issueNumber: number }
   | { type: 'newIssue' }
@@ -31,14 +34,18 @@ const NO_MODAL: ActiveModal = { type: 'none' };
  * Root TUI application component.
  *
  * Renders the 2×2 panel layout and manages global keyboard shortcuts:
- * - `c` — open the Connect Agent modal
- * - `i` — open the New Issue modal
- * - `a` — open the Assign Task modal (delegated from TasksPanel)
+ * - `?`     — toggle the keyboard-shortcut help overlay
+ * - `c`     — open the Connect Agent modal
+ * - `i`     — open the New Issue modal
+ * - `a`     — open the Assign Task modal (delegated from TasksPanel)
  * - `Enter` — dispatch the selected assigned task to its agent
- * - `q` — quit the application
+ * - `q`     — quit the application
+ *
+ * Each panel is wrapped in an {@link ErrorBoundary} so a crash in one panel
+ * shows `[Panel Error — press r to reload]` instead of exiting the TUI.
  *
  * When any modal is open the main panels are hidden and the modal fills
- * their space. Pressing `Escape` in any modal returns to the normal layout.
+ * their space. Pressing `Escape` (or `?` for the help modal) closes it.
  */
 export const App: React.FC = () => {
   const { exit } = useApp();
@@ -48,10 +55,13 @@ export const App: React.FC = () => {
   const closeModal = (): void => setModal(NO_MODAL);
 
   useInput((input) => {
-    // Ignore global shortcuts when any modal is open.
+    // The help modal handles its own close key ('?' / Escape).
+    // All other modals intercept input internally.
     if (modal.type !== 'none') return;
 
-    if (input === 'q') {
+    if (input === '?') {
+      setModal({ type: 'help' });
+    } else if (input === 'q') {
       exit();
     } else if (input === 'c') {
       setModal({ type: 'connect' });
@@ -63,11 +73,11 @@ export const App: React.FC = () => {
     // 'a' is handled by TasksPanel and triggers onAssign callback.
   });
 
-  // Hint text shown in the header.
+  // Hint text shown in the header bar.
   const hint =
     modal.type !== 'none'
       ? '[Esc] Cancel'
-      : '[c] Connect  [i] New Issue  [Enter] Dispatch  [q] Quit';
+      : '[?] Help  [c] Connect  [i] Issue  [Enter] Dispatch  [q] Quit';
 
   return (
     <Box flexDirection="column">
@@ -76,10 +86,15 @@ export const App: React.FC = () => {
         <Text color="cyan" bold>
           NEXUS{' '}
         </Text>
-        <Text color="#555555">v0.1.0 — multi-agent orchestration dashboard</Text>
+        <Text color="#555555">v1.0.0 — multi-agent orchestration dashboard</Text>
         <Text>  </Text>
         <Text color="#555555">{hint}</Text>
       </Box>
+
+      {/* Modals — rendered in place of the panels */}
+      {modal.type === 'help' && (
+        <HelpModal onClose={closeModal} />
+      )}
 
       {modal.type === 'connect' && (
         <ConnectAgentModal onClose={closeModal} />
@@ -105,26 +120,35 @@ export const App: React.FC = () => {
         />
       )}
 
+      {/* Main dashboard — shown only when no modal is open */}
       {modal.type === 'none' && (
         <>
-          {/* Main panels row 1: Agents | Tasks */}
+          {/* Row 1: Agents | Tasks */}
           <Box flexDirection="row">
-            <AgentsPanel
-              onContributorDetail={(login) =>
-                setModal({ type: 'contributorDetail', login })
-              }
-            />
-            <TasksPanel
-              onAssign={(taskId, taskTitle, issueNumber) =>
-                setModal({ type: 'assign', taskId, taskTitle, issueNumber })
-              }
-            />
+            <ErrorBoundary label="Agents">
+              <AgentsPanel
+                onContributorDetail={(login) =>
+                  setModal({ type: 'contributorDetail', login })
+                }
+              />
+            </ErrorBoundary>
+            <ErrorBoundary label="Tasks">
+              <TasksPanel
+                onAssign={(taskId, taskTitle, issueNumber) =>
+                  setModal({ type: 'assign', taskId, taskTitle, issueNumber })
+                }
+              />
+            </ErrorBoundary>
           </Box>
 
-          {/* Main panels row 2: Git | Log */}
+          {/* Row 2: Git | Log */}
           <Box flexDirection="row">
-            <GitPanel />
-            <LogPanel />
+            <ErrorBoundary label="Git">
+              <GitPanel />
+            </ErrorBoundary>
+            <ErrorBoundary label="Log">
+              <LogPanel />
+            </ErrorBoundary>
           </Box>
         </>
       )}
