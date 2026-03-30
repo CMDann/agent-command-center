@@ -1,15 +1,18 @@
 {
   "name": "nexus",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Terminal dashboard for multi-agent orchestration",
   "type": "module",
+  "bin": {
+    "nexus": "dist/nexus.js"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
     "start": "tsx src/index.tsx",
-    "build": "tsc",
-    "smoke": "NEXUS_SMOKE=1 node dist/index.js",
+    "build": "tsc && esbuild src/index.tsx --bundle --platform=node --target=node20 --outfile=dist/nexus.js --banner:js='#!/usr/bin/env node' --external:ssh2 --external:pino --log-level=warning",
+    "smoke": "NEXUS_SMOKE=1 node dist/nexus.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
@@ -37,6 +40,7 @@
     "@types/ssh2": "^1.15.0",
     "@types/ws": "^8.5.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "esbuild": "^0.24.2",
     "eslint": "^10.1.0",
     "prettier": "^3.3.0",
     "tsx": "^4.19.0",

@@ -256,8 +256,19 @@ export class OpenClawAdapter extends AgentAdapter {
     });
 
     this.client.on('error', (err: Error) => {
-      this.setStatus('error');
-      this.emitLog(`Bridge error: ${err.message}`);
+      // When BridgeClient exhausts all reconnect attempts it emits this
+      // specific message. Mark the agent as 'disconnected' (not 'error') so
+      // the TUI shows the expected state and the user can use [c] to reconnect.
+      const isMaxRetries = err.message.includes('max reconnect retries exhausted');
+      if (isMaxRetries) {
+        this.setStatus('disconnected');
+        this.emitLog(
+          `⚠ Reconnect failed after 5 attempts — agent is unreachable. Use [c] to reconnect.`
+        );
+      } else {
+        this.setStatus('error');
+        this.emitLog(`Bridge error: ${err.message}`);
+      }
       logger.error({ agentId: this.id, err }, 'OpenClawAdapter: bridge client error');
     });
 
